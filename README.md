@@ -1,5 +1,9 @@
 # 專案名稱：AstroLogistics_Network (跨星系儲存與全域燃料物流網)
 
+> 📜 **[EVE Frontier 專案憲法與開發準則](https://github.com/Eve-Frontier-Changsha-2026/Constitution/blob/master/EVE_Frontier_Project_Constitution.md)**
+> 本專案的世界觀設定與底層相依資源，均遵從此憲法文檔之規範。
+
+
 ## 📌 概念簡介
 這個專案旨在打造 EVE Frontier 中的「宇宙級 UPS 與燃料庫」。我們利用 **Smart Assemblies** 將儲存箱 (Storage) 轉化為 Sui 上的 Shared Object，並融合燃料與能量經濟，建立一個橫跨星系的去中心化物流、能源配送、物資轉運和點對點的任務網。
 
