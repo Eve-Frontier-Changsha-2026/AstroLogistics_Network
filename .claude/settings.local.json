@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(sui:*)",
+      "Bash(npm:*)",
+      "Bash(npx:*)",
+      "Bash(pnpm:*)",
+      "Bash(ls:*)",
+      "WebFetch(domain:raw.githubusercontent.com)"
+    ]
+  },
+  "enabledPlugins": {
+    "sui-dev-agents@sui-dev-agents": true,
+    "playwright@claude-plugins-official": true,
+    "frontend-design@claude-plugins-official": true
+  }
+}
