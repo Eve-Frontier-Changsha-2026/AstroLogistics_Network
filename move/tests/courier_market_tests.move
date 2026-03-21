@@ -109,3 +109,92 @@ fun test_create_contract() {
     };
     scenario.end();
 }
+
+// ---- Helper: create contract and return scenario positioned after creation ----
+fun setup_with_contract(): (test_scenario::Scenario, address, address) {
+    let client = @0xC1;
+    let courier = @0xC2;
+    let mut scenario = setup_world();
+    deposit_cargo(&mut scenario, client);
+
+    // Create contract
+    scenario.next_tx(client);
+    {
+        let s1 = test_scenario::take_shared<Storage>(&scenario);
+        let s2 = test_scenario::take_shared<Storage>(&scenario);
+        let receipt = test_scenario::take_from_sender<DepositReceipt>(&scenario);
+        let mut clock = clock::create_for_testing(scenario.ctx());
+        clock::set_for_testing(&mut clock, 1000);
+
+        let reward = coin::mint_for_testing<SUI>(5000, scenario.ctx());
+        let penalty = coin::mint_for_testing<SUI>(2000, scenario.ctx());
+
+        let (from, to) = if (storage::system_id(&s1) == 1001) { (&s1, &s2) } else { (&s2, &s1) };
+        let _id = courier_market::create_contract(
+            from, to, receipt, reward, penalty, 8000,
+            vector[1001, 2002], 86_400_000, &clock, scenario.ctx(),
+        );
+
+        test_scenario::return_shared(s1);
+        test_scenario::return_shared(s2);
+        clock::destroy_for_testing(clock);
+    };
+    (scenario, client, courier)
+}
+
+#[test]
+fun test_accept_contract() {
+    let (mut scenario, _client, courier) = setup_with_contract();
+
+    scenario.next_tx(courier);
+    {
+        let mut contract = test_scenario::take_shared<CourierContract>(&scenario);
+        let mut clock = clock::create_for_testing(scenario.ctx());
+        clock::set_for_testing(&mut clock, 2000);
+        let deposit = coin::mint_for_testing<SUI>(10000, scenario.ctx());
+        let badge = courier_market::accept_contract(&mut contract, deposit, &clock, scenario.ctx());
+        assert!(courier_market::contract_status(&contract) == 1); // Accepted
+        assert!(courier_market::contract_pickup_deadline(&contract) > 0);
+        // Fix H7: pickup_deadline capped at deadline
+        assert!(courier_market::contract_pickup_deadline(&contract) <= courier_market::contract_deadline(&contract));
+        transfer::public_transfer(badge, courier);
+        test_scenario::return_shared(contract);
+        clock::destroy_for_testing(clock);
+    };
+    scenario.end();
+}
+
+#[test]
+fun test_cancel_by_client_open() {
+    let (mut scenario, client, _courier) = setup_with_contract();
+
+    scenario.next_tx(client);
+    {
+        let contract = test_scenario::take_shared<CourierContract>(&scenario);
+        let (receipt, refund) = courier_market::cancel_by_client(contract, scenario.ctx());
+        // Refund = reward(5000) + penalty(2000) = 7000
+        assert!(coin::value(&refund) == 7000);
+        transfer::public_transfer(receipt, client);
+        transfer::public_transfer(refund, client);
+    };
+    scenario.end();
+}
+
+#[test]
+#[expected_failure(abort_code = courier_market::E_DEPOSIT_TOO_LOW)]
+fun test_accept_deposit_too_low() {
+    let (mut scenario, _client, courier) = setup_with_contract();
+
+    scenario.next_tx(courier);
+    {
+        let mut contract = test_scenario::take_shared<CourierContract>(&scenario);
+        let clock = clock::create_for_testing(scenario.ctx());
+        // min_courier_deposit = 8000, providing only 100
+        let deposit = coin::mint_for_testing<SUI>(100, scenario.ctx());
+        let badge = courier_market::accept_contract(&mut contract, deposit, &clock, scenario.ctx());
+        transfer::public_transfer(badge, courier);
+        test_scenario::return_shared(contract);
+        clock::destroy_for_testing(clock);
+    };
+    scenario.end();
+}

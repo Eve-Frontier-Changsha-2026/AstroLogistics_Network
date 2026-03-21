@@ -194,6 +194,66 @@ public fun create_contract(
     contract_id
 }
 
+/// Courier accepts the contract. Locks deposit, receives CourierBadge.
+public fun accept_contract(
+    contract: &mut CourierContract,
+    deposit: Coin<SUI>,
+    clock: &Clock,
+    ctx: &mut TxContext,
+): CourierBadge {
+    assert!(contract.status == STATUS_OPEN, E_WRONG_STATUS);
+    assert!(coin::value(&deposit) >= contract.min_courier_deposit, E_DEPOSIT_TOO_LOW);
+
+    let now = clock::timestamp_ms(clock);
+    let deposit_amount = coin::value(&deposit);
+    contract.courier = option::some(ctx.sender());
+    contract.status = STATUS_ACCEPTED;
+    // Fix H7: cap pickup_deadline at deadline
+    let raw_pickup = now + PICKUP_DEADLINE_MS;
+    contract.pickup_deadline = if (raw_pickup < contract.deadline) { raw_pickup } else { contract.deadline };
+    balance::join(&mut contract.courier_deposit, coin::into_balance(deposit));
+
+    event::emit(ContractAccepted {
+        contract_id: object::id(contract),
+        courier: ctx.sender(),
+        deposit_amount,
+    });
+
+    CourierBadge {
+        id: object::new(ctx),
+        contract_id: object::id(contract),
+        courier: ctx.sender(),
+    }
+}
+
+/// Client cancels contract (only Open status).
+public fun cancel_by_client(
+    contract: CourierContract,
+    ctx: &mut TxContext,
+): (DepositReceipt, Coin<SUI>) {
+    assert!(contract.status == STATUS_OPEN, E_WRONG_STATUS);
+    assert!(contract.client == ctx.sender(), E_NOT_CLIENT);
+
+    let contract_id = object::id(&contract);
+    let CourierContract {
+        id, client, courier: _, from_storage: _, to_storage: _,
+        mut cargo_receipt, reward: _, client_deposit, courier_deposit,
+        min_courier_deposit: _, cargo_value: _, route: _, status: _,
+        deadline: _, pickup_deadline: _, confirm_deadline: _,
+        dispute_deadline: _, created_at: _,
+    } = contract;
+
+    let receipt = option::extract(&mut cargo_receipt);
+    option::destroy_none(cargo_receipt);
+    let refund = coin::from_balance(client_deposit, ctx);
+    balance::destroy_zero(courier_deposit);
+
+    event::emit(ContractCancelled { contract_id, client });
+    object::delete(id);
+
+    (receipt, refund)
+}
+
 // ============ Getters ============
 
 public fun contract_status(c: &CourierContract): u8 { c.status }
