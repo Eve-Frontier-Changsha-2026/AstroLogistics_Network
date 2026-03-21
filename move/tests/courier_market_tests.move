@@ -7,7 +7,7 @@ use sui::coin;
 use sui::sui::SUI;
 use astrologistics::storage::{Self, Storage, DepositReceipt};
 use astrologistics::threat_oracle;
-use astrologistics::courier_market::{Self, CourierContract};
+use astrologistics::courier_market::{Self, CourierContract, CourierBadge};
 
 // ============ Helpers ============
 
@@ -189,11 +189,75 @@ fun test_accept_deposit_too_low() {
     {
         let mut contract = test_scenario::take_shared<CourierContract>(&scenario);
         let clock = clock::create_for_testing(scenario.ctx());
-        // min_courier_deposit = 8000, providing only 100
         let deposit = coin::mint_for_testing<SUI>(100, scenario.ctx());
         let badge = courier_market::accept_contract(&mut contract, deposit, &clock, scenario.ctx());
         transfer::public_transfer(badge, courier);
         test_scenario::return_shared(contract);
+        clock::destroy_for_testing(clock);
+    };
+    scenario.end();
+}
+
+// ---- Helper: contract accepted by courier ----
+fun setup_with_accepted_contract(): (test_scenario::Scenario, address, address) {
+    let (mut scenario, client, courier) = setup_with_contract();
+
+    scenario.next_tx(courier);
+    {
+        let mut contract = test_scenario::take_shared<CourierContract>(&scenario);
+        let mut clock = clock::create_for_testing(scenario.ctx());
+        clock::set_for_testing(&mut clock, 2000);
+        let deposit = coin::mint_for_testing<SUI>(10000, scenario.ctx());
+        let badge = courier_market::accept_contract(&mut contract, deposit, &clock, scenario.ctx());
+        transfer::public_transfer(badge, courier);
+        test_scenario::return_shared(contract);
+        clock::destroy_for_testing(clock);
+    };
+    (scenario, client, courier)
+}
+
+#[test]
+fun test_pickup_and_deliver() {
+    let (mut scenario, _client, courier) = setup_with_accepted_contract();
+
+    scenario.next_tx(courier);
+    {
+        let mut contract = test_scenario::take_shared<CourierContract>(&scenario);
+        let badge = test_scenario::take_from_sender<CourierBadge>(&scenario);
+        let s1 = test_scenario::take_shared<Storage>(&scenario);
+        let s2 = test_scenario::take_shared<Storage>(&scenario);
+        let mut clock = clock::create_for_testing(scenario.ctx());
+        clock::set_for_testing(&mut clock, 3000);
+
+        // Identify from/to by matching contract's from_storage
+        let from_id = courier_market::contract_from_storage(&contract);
+        if (object::id(&s1) == from_id) {
+            let mut from = s1;
+            let mut to = s2;
+            courier_market::pickup_and_deliver(
+                &mut contract, &badge, &mut from, &mut to, &clock, scenario.ctx(),
+            );
+            // Verify: cargo moved — from_storage load decreased, to_storage load increased
+            assert!(storage::current_load(&from) == 0);
+            assert!(storage::current_load(&to) == 200); // cargo weight=200
+            test_scenario::return_shared(from);
+            test_scenario::return_shared(to);
+        } else {
+            let mut from = s2;
+            let mut to = s1;
+            courier_market::pickup_and_deliver(
+                &mut contract, &badge, &mut from, &mut to, &clock, scenario.ctx(),
+            );
+            assert!(storage::current_load(&from) == 0);
+            assert!(storage::current_load(&to) == 200);
+            test_scenario::return_shared(from);
+            test_scenario::return_shared(to);
+        };
+
+        assert!(courier_market::contract_status(&contract) == 2); // PendingConfirm
+        assert!(courier_market::contract_confirm_deadline(&contract) > 0);
+        test_scenario::return_shared(contract);
+        transfer::public_transfer(badge, courier);
         clock::destroy_for_testing(clock);
     };
     scenario.end();

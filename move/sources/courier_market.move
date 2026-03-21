@@ -254,6 +254,46 @@ public fun cancel_by_client(
     (receipt, refund)
 }
 
+/// Courier picks up cargo from source and delivers to destination atomically.
+/// Uses remove_cargo_for_transport + deposit_cargo (Fix M8).
+/// Courier never holds the DepositReceipt (hot-potato pattern via package fns).
+public fun pickup_and_deliver(
+    contract: &mut CourierContract,
+    badge: &CourierBadge,
+    from_storage: &mut Storage,
+    to_storage: &mut Storage,
+    clock: &Clock,
+    ctx: &mut TxContext,
+) {
+    assert!(contract.status == STATUS_ACCEPTED, E_WRONG_STATUS);
+    assert!(badge.contract_id == object::id(contract), E_BADGE_MISMATCH);
+    assert!(badge.courier == ctx.sender(), E_NOT_COURIER);
+    assert!(object::id(from_storage) == contract.from_storage, E_STORAGE_MISMATCH);
+    assert!(object::id(to_storage) == contract.to_storage, E_STORAGE_MISMATCH);
+
+    // Extract receipt from contract
+    let receipt = option::extract(&mut contract.cargo_receipt);
+
+    // Remove cargo from source (package-level, no fee)
+    let cargo = storage::remove_cargo_for_transport(from_storage, receipt);
+
+    // Deposit cargo at destination (package-level, preserves original Cargo object)
+    let new_receipt = storage::deposit_cargo(to_storage, cargo, clock, ctx);
+
+    // Store new receipt for client (cargo_receipt is none after extract)
+    option::fill(&mut contract.cargo_receipt, new_receipt);
+
+    let now = clock::timestamp_ms(clock);
+    contract.status = STATUS_PENDING_CONFIRM;
+    contract.confirm_deadline = now + CONFIRM_DEADLINE_MS;
+
+    event::emit(CargoPickedUpAndDelivered {
+        contract_id: object::id(contract),
+        from_storage: contract.from_storage,
+        to_storage: contract.to_storage,
+    });
+}
+
 // ============ Getters ============
 
 public fun contract_status(c: &CourierContract): u8 { c.status }
@@ -262,6 +302,8 @@ public fun contract_client(c: &CourierContract): address { c.client }
 public fun contract_deadline(c: &CourierContract): u64 { c.deadline }
 public fun contract_min_deposit(c: &CourierContract): u64 { c.min_courier_deposit }
 public fun contract_cargo_value(c: &CourierContract): u64 { c.cargo_value }
+public fun contract_from_storage(c: &CourierContract): ID { c.from_storage }
+public fun contract_to_storage(c: &CourierContract): ID { c.to_storage }
 public fun contract_pickup_deadline(c: &CourierContract): u64 { c.pickup_deadline }
 public fun contract_confirm_deadline(c: &CourierContract): u64 { c.confirm_deadline }
 public fun contract_dispute_deadline(c: &CourierContract): u64 { c.dispute_deadline }
