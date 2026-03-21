@@ -445,6 +445,109 @@ public fun resolve_dispute(
     object::delete(id);
 }
 
+/// Permissionless timeout claim. Returns keeper bounty (0.5% of forfeited deposit).
+/// Handles: Open, Accepted, PendingConfirm, Disputed stages. (Fix M6: no InDelivery)
+#[allow(lint(self_transfer))]
+public fun claim_timeout(
+    contract: CourierContract,
+    clock: &Clock,
+    ctx: &mut TxContext,
+): Coin<SUI> {
+    let now = clock::timestamp_ms(clock);
+    let keeper = ctx.sender();
+    let status = contract.status;
+
+    // Fix C3: extract contract_id before destructure
+    let contract_id = object::id(&contract);
+
+    // Fix C4: bind reward for PendingConfirm branch
+    let CourierContract {
+        id, client, courier, from_storage: _, to_storage: _,
+        cargo_receipt, reward, client_deposit, courier_deposit,
+        min_courier_deposit: _, cargo_value: _, route: _, status: _,
+        deadline, pickup_deadline, confirm_deadline,
+        dispute_deadline, created_at: _,
+    } = contract;
+
+    if (status == STATUS_OPEN) {
+        // Open timeout: no takers → client gets full refund + receipt
+        assert!(now >= deadline, E_NOT_TIMED_OUT);
+        transfer_receipt_to(cargo_receipt, client);
+        transfer::public_transfer(coin::from_balance(client_deposit, ctx), client);
+        balance::destroy_zero(courier_deposit);
+        event::emit(TimeoutClaimed { contract_id, stage: status, keeper, bounty: 0 });
+        object::delete(id);
+        coin::zero(ctx)
+
+    } else if (status == STATUS_ACCEPTED) {
+        // Accepted timeout (no pickup): courier penalized
+        assert!(now >= pickup_deadline, E_NOT_TIMED_OUT);
+        transfer_receipt_to(cargo_receipt, client);
+        option::destroy_some(courier); // courier exists
+
+        let mut courier_dep = courier_deposit;
+        let courier_val = balance::value(&courier_dep);
+        let bounty_amount = courier_val * constants::keeper_bounty_bps() / constants::bps_scale();
+        let bounty = if (bounty_amount > 0) {
+            balance::split(&mut courier_dep, bounty_amount)
+        } else {
+            balance::zero()
+        };
+        let mut all_to_client = client_deposit;
+        balance::join(&mut all_to_client, courier_dep);
+        transfer::public_transfer(coin::from_balance(all_to_client, ctx), client);
+        event::emit(TimeoutClaimed { contract_id, stage: status, keeper, bounty: bounty_amount });
+        object::delete(id);
+        coin::from_balance(bounty, ctx)
+
+    } else if (status == STATUS_PENDING_CONFIRM) {
+        // PendingConfirm timeout: auto-confirm → courier wins
+        assert!(now >= confirm_deadline, E_NOT_TIMED_OUT);
+        let courier_addr = option::destroy_some(courier);
+        transfer_receipt_to(cargo_receipt, client);
+
+        // Normal settlement: reward → courier, deposits returned (Fix C4: use bound `reward`)
+        let mut client_bal = client_deposit;
+        let reward_payout = balance::split(&mut client_bal, reward);
+        transfer::public_transfer(coin::from_balance(reward_payout, ctx), courier_addr);
+        if (balance::value(&client_bal) > 0) {
+            transfer::public_transfer(coin::from_balance(client_bal, ctx), client);
+        } else {
+            balance::destroy_zero(client_bal);
+        };
+        transfer::public_transfer(coin::from_balance(courier_deposit, ctx), courier_addr);
+        event::emit(TimeoutClaimed { contract_id, stage: status, keeper, bounty: 0 });
+        object::delete(id);
+        coin::zero(ctx)
+
+    } else if (status == STATUS_DISPUTED) {
+        // Fix M7: Dispute timeout → auto-resolve courier wins
+        assert!(now >= dispute_deadline, E_NOT_TIMED_OUT);
+        let courier_addr = option::destroy_some(courier);
+        transfer_receipt_to(cargo_receipt, courier_addr);
+
+        let mut all = client_deposit;
+        balance::join(&mut all, courier_deposit);
+        transfer::public_transfer(coin::from_balance(all, ctx), courier_addr);
+        event::emit(TimeoutClaimed { contract_id, stage: status, keeper, bounty: 0 });
+        object::delete(id);
+        coin::zero(ctx)
+
+    } else {
+        abort E_WRONG_STATUS
+    }
+}
+
+// ============ Internal helpers ============
+
+fun transfer_receipt_to(receipt_opt: option::Option<DepositReceipt>, recipient: address) {
+    if (option::is_some(&receipt_opt)) {
+        transfer::public_transfer(option::destroy_some(receipt_opt), recipient);
+    } else {
+        option::destroy_none(receipt_opt);
+    };
+}
+
 // ============ Getters ============
 
 public fun contract_status(c: &CourierContract): u8 { c.status }

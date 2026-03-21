@@ -390,3 +390,102 @@ fun test_raise_dispute_and_resolve_split() {
     };
     scenario.end();
 }
+
+#[test]
+fun test_timeout_open() {
+    let keeper = @0xBB;
+    let client = @0xC1;
+    let (mut scenario, _client, _courier) = setup_with_contract();
+
+    // Fast-forward past deadline (1000 + 86_400_000)
+    scenario.next_tx(keeper);
+    {
+        let contract = test_scenario::take_shared<CourierContract>(&scenario);
+        let mut clock = clock::create_for_testing(scenario.ctx());
+        clock::set_for_testing(&mut clock, 86_401_001); // past deadline
+        let bounty = courier_market::claim_timeout(contract, &clock, scenario.ctx());
+        assert!(coin::value(&bounty) == 0); // no keeper bounty for Open timeout
+        transfer::public_transfer(bounty, keeper);
+        clock::destroy_for_testing(clock);
+    };
+
+    // Verify client got receipt back
+    scenario.next_tx(client);
+    {
+        let receipt = test_scenario::take_from_address<DepositReceipt>(&scenario, client);
+        transfer::public_transfer(receipt, client);
+    };
+    scenario.end();
+}
+
+#[test]
+fun test_timeout_accepted_no_pickup() {
+    let keeper = @0xBB;
+    let (mut scenario, _client, _courier) = setup_with_accepted_contract();
+
+    // Fast-forward past pickup_deadline
+    scenario.next_tx(keeper);
+    {
+        let contract = test_scenario::take_shared<CourierContract>(&scenario);
+        let pickup_dl = courier_market::contract_pickup_deadline(&contract);
+        let mut clock = clock::create_for_testing(scenario.ctx());
+        clock::set_for_testing(&mut clock, pickup_dl + 1);
+        let bounty = courier_market::claim_timeout(contract, &clock, scenario.ctx());
+        // Keeper bounty = 0.5% of courier deposit (10000) = 50
+        assert!(coin::value(&bounty) == 50);
+        transfer::public_transfer(bounty, keeper);
+        clock::destroy_for_testing(clock);
+    };
+    scenario.end();
+}
+
+#[test]
+fun test_timeout_pending_confirm_auto_settle() {
+    let keeper = @0xBB;
+    let (mut scenario, _client, _courier) = setup_with_delivered_contract();
+
+    // Fast-forward past confirm_deadline
+    scenario.next_tx(keeper);
+    {
+        let contract = test_scenario::take_shared<CourierContract>(&scenario);
+        let confirm_dl = courier_market::contract_confirm_deadline(&contract);
+        let mut clock = clock::create_for_testing(scenario.ctx());
+        clock::set_for_testing(&mut clock, confirm_dl + 1);
+        let bounty = courier_market::claim_timeout(contract, &clock, scenario.ctx());
+        assert!(coin::value(&bounty) == 0); // no bounty for auto-confirm
+        transfer::public_transfer(bounty, keeper);
+        clock::destroy_for_testing(clock);
+    };
+    scenario.end();
+}
+
+#[test]
+fun test_timeout_disputed_auto_courier_wins() {
+    let keeper = @0xBB;
+    let (mut scenario, client, _courier) = setup_with_delivered_contract();
+
+    // Client raises dispute
+    scenario.next_tx(client);
+    {
+        let mut contract = test_scenario::take_shared<CourierContract>(&scenario);
+        let mut clock = clock::create_for_testing(scenario.ctx());
+        clock::set_for_testing(&mut clock, 5000);
+        courier_market::raise_dispute(&mut contract, &clock, scenario.ctx());
+        test_scenario::return_shared(contract);
+        clock::destroy_for_testing(clock);
+    };
+
+    // Fast-forward past dispute_deadline (72 hours)
+    scenario.next_tx(keeper);
+    {
+        let contract = test_scenario::take_shared<CourierContract>(&scenario);
+        let dispute_dl = courier_market::contract_dispute_deadline(&contract);
+        let mut clock = clock::create_for_testing(scenario.ctx());
+        clock::set_for_testing(&mut clock, dispute_dl + 1);
+        let bounty = courier_market::claim_timeout(contract, &clock, scenario.ctx());
+        assert!(coin::value(&bounty) == 0);
+        transfer::public_transfer(bounty, keeper);
+        clock::destroy_for_testing(clock);
+    };
+    scenario.end();
+}
