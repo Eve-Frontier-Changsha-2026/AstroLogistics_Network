@@ -334,3 +334,59 @@ fun test_confirm_and_settle() {
     };
     scenario.end();
 }
+
+#[test]
+fun test_raise_dispute_and_resolve_client_wins() {
+    let admin = @0xAD;
+    let (mut scenario, client, courier) = setup_with_delivered_contract();
+
+    // Client raises dispute
+    scenario.next_tx(client);
+    {
+        let mut contract = test_scenario::take_shared<CourierContract>(&scenario);
+        let mut clock = clock::create_for_testing(scenario.ctx());
+        clock::set_for_testing(&mut clock, 5000);
+        courier_market::raise_dispute(&mut contract, &clock, scenario.ctx());
+        assert!(courier_market::contract_status(&contract) == 4); // Disputed
+        assert!(courier_market::contract_dispute_deadline(&contract) > 0);
+        test_scenario::return_shared(contract);
+        clock::destroy_for_testing(clock);
+    };
+
+    // Oracle resolves: client wins (ruling=0)
+    scenario.next_tx(admin);
+    {
+        let contract = test_scenario::take_shared<CourierContract>(&scenario);
+        let badge = test_scenario::take_from_address<CourierBadge>(&scenario, courier);
+        let oracle_cap = test_scenario::take_from_sender<threat_oracle::OracleCap>(&scenario);
+        courier_market::resolve_dispute(contract, badge, &oracle_cap, 0, scenario.ctx());
+        transfer::public_transfer(oracle_cap, admin);
+    };
+    scenario.end();
+}
+
+#[test]
+fun test_raise_dispute_and_resolve_split() {
+    let admin = @0xAD;
+    let (mut scenario, client, courier) = setup_with_delivered_contract();
+
+    scenario.next_tx(client);
+    {
+        let mut contract = test_scenario::take_shared<CourierContract>(&scenario);
+        let clock = clock::create_for_testing(scenario.ctx());
+        courier_market::raise_dispute(&mut contract, &clock, scenario.ctx());
+        test_scenario::return_shared(contract);
+        clock::destroy_for_testing(clock);
+    };
+
+    // Oracle resolves: split (ruling=2)
+    scenario.next_tx(admin);
+    {
+        let contract = test_scenario::take_shared<CourierContract>(&scenario);
+        let badge = test_scenario::take_from_address<CourierBadge>(&scenario, courier);
+        let oracle_cap = test_scenario::take_from_sender<threat_oracle::OracleCap>(&scenario);
+        courier_market::resolve_dispute(contract, badge, &oracle_cap, 2, scenario.ctx());
+        transfer::public_transfer(oracle_cap, admin);
+    };
+    scenario.end();
+}

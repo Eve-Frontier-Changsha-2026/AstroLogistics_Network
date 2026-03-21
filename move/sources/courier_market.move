@@ -368,6 +368,83 @@ public fun settle(
     object::delete(id);
 }
 
+/// Client raises dispute during PendingConfirm.
+public fun raise_dispute(
+    contract: &mut CourierContract,
+    clock: &Clock,
+    ctx: &mut TxContext,
+) {
+    assert!(contract.status == STATUS_PENDING_CONFIRM, E_WRONG_STATUS);
+    assert!(contract.client == ctx.sender(), E_NOT_CLIENT);
+    let now = clock::timestamp_ms(clock);
+    contract.status = STATUS_DISPUTED;
+    // Fix M7: dispute has its own timeout
+    contract.dispute_deadline = now + DISPUTE_TIMEOUT_MS;
+    event::emit(DisputeRaised {
+        contract_id: object::id(contract),
+        client: ctx.sender(),
+        dispute_deadline: contract.dispute_deadline,
+    });
+}
+
+/// OracleCap holder resolves dispute.
+/// ruling: 0 = client wins, 1 = courier wins, 2 = split
+#[allow(lint(self_transfer))]
+public fun resolve_dispute(
+    contract: CourierContract,
+    badge: CourierBadge,
+    _oracle_cap: &OracleCap,
+    ruling: u8,
+    ctx: &mut TxContext,
+) {
+    assert!(contract.status == STATUS_DISPUTED, E_WRONG_STATUS);
+
+    let courier_addr = badge.courier;
+    let CourierBadge { id: badge_id, contract_id: _, courier: _ } = badge;
+    object::delete(badge_id);
+
+    // Fix C3: extract ID before delete
+    let contract_id = object::id(&contract);
+    let CourierContract {
+        id, client, courier: _, from_storage: _, to_storage: _,
+        cargo_receipt, reward: _, client_deposit, courier_deposit,
+        min_courier_deposit: _, cargo_value: _, route: _, status: _,
+        deadline: _, pickup_deadline: _, confirm_deadline: _,
+        dispute_deadline: _, created_at: _,
+    } = contract;
+
+    // Handle receipt: winner gets it
+    if (option::is_some(&cargo_receipt)) {
+        let r = option::destroy_some(cargo_receipt);
+        if (ruling == 0) {
+            transfer::public_transfer(r, client);
+        } else {
+            transfer::public_transfer(r, courier_addr);
+        };
+    } else {
+        option::destroy_none(cargo_receipt);
+    };
+
+    if (ruling == 0) {
+        // Client wins: client gets both deposits
+        let mut all = client_deposit;
+        balance::join(&mut all, courier_deposit);
+        transfer::public_transfer(coin::from_balance(all, ctx), client);
+    } else if (ruling == 1) {
+        // Courier wins: courier gets both deposits
+        let mut all = client_deposit;
+        balance::join(&mut all, courier_deposit);
+        transfer::public_transfer(coin::from_balance(all, ctx), courier_addr);
+    } else {
+        // Split: each gets their own deposit back
+        transfer::public_transfer(coin::from_balance(client_deposit, ctx), client);
+        transfer::public_transfer(coin::from_balance(courier_deposit, ctx), courier_addr);
+    };
+
+    event::emit(DisputeResolved { contract_id, ruling });
+    object::delete(id);
+}
+
 // ============ Getters ============
 
 public fun contract_status(c: &CourierContract): u8 { c.status }
