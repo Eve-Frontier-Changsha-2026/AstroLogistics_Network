@@ -18,9 +18,8 @@ const E_NOT_TIMED_OUT: u64 = 4;
 const E_BADGE_MISMATCH: u64 = 5;
 const E_STORAGE_MISMATCH: u64 = 6;
 const E_DEADLINE_TOO_SHORT: u64 = 7;
-const E_ALREADY_CONFIRMED: u64 = 8;
-const E_SAME_STORAGE: u64 = 9;        // Fix Low
-const E_REWARD_TOO_LOW: u64 = 10;     // Fix H8
+const E_SAME_STORAGE: u64 = 8;         // Fix Low
+const E_REWARD_TOO_LOW: u64 = 9;      // Fix H8
 
 // Status constants (Fix M6: removed IN_DELIVERY)
 const STATUS_OPEN: u8 = 0;
