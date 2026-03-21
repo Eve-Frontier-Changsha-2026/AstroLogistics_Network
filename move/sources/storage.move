@@ -308,6 +308,118 @@ public fun claim_fees(
     }
 }
 
+// ============ Auth / Reclaim / Admin ============
+
+/// Withdraw using hot-potato auth (for third-party withdrawals like courier).
+/// WithdrawAuth has zero abilities — must be explicitly destructured here.
+#[allow(lint(self_transfer))]
+public fun withdraw_with_auth(
+    storage: &mut Storage,
+    receipt: DepositReceipt,
+    auth: WithdrawAuth,
+    payment: Coin<SUI>,
+    clock: &Clock,
+    ctx: &mut TxContext,
+): Cargo {
+    let receipt_id = object::id(&receipt);
+    let WithdrawAuth { receipt_id: auth_receipt_id, authorized_by: _ } = auth;
+    assert!(auth_receipt_id == receipt_id, E_AUTH_MISMATCH);
+    withdraw(storage, receipt, payment, clock, ctx)
+}
+
+/// Admin reclaim orphaned cargo after grace period.
+/// Only works when the receipt has been consumed (no live_receipt).
+public fun admin_reclaim(
+    storage: &mut Storage,
+    cap: &AdminCap,
+    cargo_id: ID,
+    clock: &Clock,
+    _ctx: &mut TxContext,
+) {
+    assert!(cap.storage_id == object::id(storage), E_CAP_MISMATCH);
+    assert!(object_bag::contains(&storage.cargo_bag, cargo_id), E_CARGO_NOT_FOUND);
+    assert!(!table::contains(&storage.live_receipts, cargo_id), E_RECEIPT_STILL_LIVE);
+
+    // Check grace period
+    let cargo_ref: &Cargo = object_bag::borrow(&storage.cargo_bag, cargo_id);
+    let now = clock::timestamp_ms(clock);
+    assert!(now >= cargo_ref.deposited_at + constants::reclaim_grace_ms(), E_GRACE_PERIOD_NOT_MET);
+
+    // Remove cargo
+    let cargo: Cargo = object_bag::remove(&mut storage.cargo_bag, cargo_id);
+    storage.current_load = storage.current_load - cargo.weight;
+
+    event::emit(AdminReclaimed {
+        storage_id: object::id(storage),
+        cargo_id,
+    });
+
+    // Destroy cargo
+    let Cargo { id, owner: _, item_type: _, weight: _, value: _, storage_id: _, deposited_at: _ } = cargo;
+    object::delete(id);
+}
+
+/// Update storage fee rate (admin only, capped at MAX_OWNER_FEE_BPS)
+public fun update_fee_rate(storage: &mut Storage, cap: &AdminCap, new_rate: u64) {
+    assert!(cap.storage_id == object::id(storage), E_CAP_MISMATCH);
+    assert!(new_rate <= constants::max_owner_fee_bps(), E_FEE_TOO_HIGH);
+    storage.fee_rate_bps = new_rate;
+}
+
+/// Remove cargo for transport (package-level). Cleans up ObjectBag + live_receipts + current_load.
+/// Returns Cargo for re-deposit at destination.
+public(package) fun remove_cargo_for_transport(
+    storage: &mut Storage,
+    receipt: DepositReceipt,
+): Cargo {
+    let DepositReceipt { id, storage_id, cargo_id, depositor: _ } = receipt;
+    assert!(storage_id == object::id(storage), E_RECEIPT_MISMATCH);
+    assert!(object_bag::contains(&storage.cargo_bag, cargo_id), E_CARGO_NOT_FOUND);
+    object::delete(id);
+
+    if (table::contains(&storage.live_receipts, cargo_id)) {
+        table::remove(&mut storage.live_receipts, cargo_id);
+    };
+
+    let cargo: Cargo = object_bag::remove(&mut storage.cargo_bag, cargo_id);
+    storage.current_load = storage.current_load - cargo.weight;
+    cargo
+}
+
+/// Deposit an existing Cargo object (package-level, for transport re-deposit).
+public(package) fun deposit_cargo(
+    storage: &mut Storage,
+    cargo: Cargo,
+    _clock: &Clock,
+    ctx: &mut TxContext,
+): DepositReceipt {
+    assert!(storage.current_load + cargo.weight <= storage.max_capacity, E_CAPACITY_EXCEEDED);
+
+    let cargo_id = object::id(&cargo);
+    let weight = cargo.weight;
+    let value = cargo.value;
+    storage.current_load = storage.current_load + weight;
+    object_bag::add(&mut storage.cargo_bag, cargo_id, cargo);
+
+    let receipt = DepositReceipt {
+        id: object::new(ctx),
+        storage_id: object::id(storage),
+        cargo_id,
+        depositor: ctx.sender(),
+    };
+    table::add(&mut storage.live_receipts, cargo_id, true);
+
+    event::emit(CargoDeposited {
+        storage_id: object::id(storage),
+        cargo_id,
+        depositor: ctx.sender(),
+        weight,
+        value,
+    });
+
+    receipt
+}
+
 #[test_only]
 /// Clear live_receipt for a cargo (simulates receipt consumption by upper modules)
 public fun clear_live_receipt_for_testing(storage: &mut Storage, cargo_id: ID) {
