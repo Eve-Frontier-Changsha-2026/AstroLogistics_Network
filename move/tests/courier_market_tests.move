@@ -262,3 +262,75 @@ fun test_pickup_and_deliver() {
     };
     scenario.end();
 }
+
+// ---- Helper: pickup_and_deliver done, status = PendingConfirm ----
+fun setup_with_delivered_contract(): (test_scenario::Scenario, address, address) {
+    let (mut scenario, client, courier) = setup_with_accepted_contract();
+
+    scenario.next_tx(courier);
+    {
+        let mut contract = test_scenario::take_shared<CourierContract>(&scenario);
+        let badge = test_scenario::take_from_sender<CourierBadge>(&scenario);
+        let s1 = test_scenario::take_shared<Storage>(&scenario);
+        let s2 = test_scenario::take_shared<Storage>(&scenario);
+        let mut clock = clock::create_for_testing(scenario.ctx());
+        clock::set_for_testing(&mut clock, 3000);
+
+        let from_id = courier_market::contract_from_storage(&contract);
+        if (object::id(&s1) == from_id) {
+            let mut from = s1;
+            let mut to = s2;
+            courier_market::pickup_and_deliver(
+                &mut contract, &badge, &mut from, &mut to, &clock, scenario.ctx(),
+            );
+            test_scenario::return_shared(from);
+            test_scenario::return_shared(to);
+        } else {
+            let mut from = s2;
+            let mut to = s1;
+            courier_market::pickup_and_deliver(
+                &mut contract, &badge, &mut from, &mut to, &clock, scenario.ctx(),
+            );
+            test_scenario::return_shared(from);
+            test_scenario::return_shared(to);
+        };
+
+        test_scenario::return_shared(contract);
+        transfer::public_transfer(badge, courier);
+        clock::destroy_for_testing(clock);
+    };
+    (scenario, client, courier)
+}
+
+#[test]
+fun test_confirm_and_settle() {
+    let admin = @0xAD;
+    let (mut scenario, client, courier) = setup_with_delivered_contract();
+
+    // Client confirms delivery
+    scenario.next_tx(client);
+    {
+        let mut contract = test_scenario::take_shared<CourierContract>(&scenario);
+        courier_market::confirm_delivery(&mut contract, scenario.ctx());
+        assert!(courier_market::contract_status(&contract) == 3); // Delivered
+        test_scenario::return_shared(contract);
+    };
+
+    // Settle
+    scenario.next_tx(courier);
+    {
+        let contract = test_scenario::take_shared<CourierContract>(&scenario);
+        let badge = test_scenario::take_from_sender<CourierBadge>(&scenario);
+        let oracle_cap = test_scenario::take_from_address<threat_oracle::OracleCap>(&scenario, admin);
+        courier_market::settle(contract, badge, &oracle_cap, scenario.ctx());
+        transfer::public_transfer(oracle_cap, admin);
+    };
+
+    // Verify courier received ReporterCap
+    scenario.next_tx(courier);
+    {
+        let reporter_cap = test_scenario::take_from_address<threat_oracle::ReporterCap>(&scenario, courier);
+        threat_oracle::transfer_reporter_cap(reporter_cap, courier);
+    };
+    scenario.end();
+}

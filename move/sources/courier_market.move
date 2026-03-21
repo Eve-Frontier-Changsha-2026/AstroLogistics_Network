@@ -294,6 +294,80 @@ public fun pickup_and_deliver(
     });
 }
 
+/// Client confirms delivery. Transitions to Delivered.
+public fun confirm_delivery(
+    contract: &mut CourierContract,
+    ctx: &mut TxContext,
+) {
+    assert!(contract.status == STATUS_PENDING_CONFIRM, E_WRONG_STATUS);
+    assert!(contract.client == ctx.sender(), E_NOT_CLIENT);
+    contract.status = STATUS_DELIVERED;
+    event::emit(DeliveryConfirmed { contract_id: object::id(contract) });
+}
+
+/// Settle the contract. Pays courier reward, returns deposits, issues ReporterCap.
+/// Only callable after confirm_delivery (status = Delivered).
+#[allow(lint(self_transfer))]
+public fun settle(
+    contract: CourierContract,
+    badge: CourierBadge,
+    oracle_cap: &OracleCap,
+    ctx: &mut TxContext,
+) {
+    assert!(contract.status == STATUS_DELIVERED, E_WRONG_STATUS);
+    assert!(badge.contract_id == object::id(&contract), E_BADGE_MISMATCH);
+
+    let courier_addr = badge.courier;
+    let CourierBadge { id: badge_id, contract_id: _, courier: _ } = badge;
+    object::delete(badge_id);
+
+    // Fix C3: extract ID before destructure/delete
+    let contract_id = object::id(&contract);
+    let CourierContract {
+        id, client, courier: _, from_storage: _, to_storage: _,
+        cargo_receipt, reward, client_deposit, courier_deposit,
+        min_courier_deposit: _, cargo_value: _, route: _, status: _,
+        deadline: _, pickup_deadline: _, confirm_deadline: _,
+        dispute_deadline: _, created_at: _,
+    } = contract;
+
+    // Return destination receipt to client
+    if (option::is_some(&cargo_receipt)) {
+        let r = option::destroy_some(cargo_receipt);
+        transfer::public_transfer(r, client);
+    } else {
+        option::destroy_none(cargo_receipt);
+    };
+
+    // Pay courier: reward from client_deposit
+    let mut client_bal = client_deposit;
+    let reward_payout = balance::split(&mut client_bal, reward);
+    transfer::public_transfer(coin::from_balance(reward_payout, ctx), courier_addr);
+
+    // Return remaining client deposit (cancel_penalty) to client
+    if (balance::value(&client_bal) > 0) {
+        transfer::public_transfer(coin::from_balance(client_bal, ctx), client);
+    } else {
+        balance::destroy_zero(client_bal);
+    };
+
+    // Return courier deposit
+    transfer::public_transfer(coin::from_balance(courier_deposit, ctx), courier_addr);
+
+    // Issue ReporterCap to courier
+    let reporter_cap = threat_oracle::issue_reporter_cap(oracle_cap, courier_addr, 1, ctx);
+    let reporter_cap_id = object::id(&reporter_cap);
+    threat_oracle::transfer_reporter_cap(reporter_cap, courier_addr);
+
+    event::emit(ContractSettled {
+        contract_id,
+        courier_reward: reward,
+        reporter_cap_id,
+    });
+
+    object::delete(id);
+}
+
 // ============ Getters ============
 
 public fun contract_status(c: &CourierContract): u8 { c.status }
