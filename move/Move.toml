@@ -1,0 +1,8 @@
+[package]
+name = "astrologistics"
+edition = "2024.beta"
+
+[dependencies]
+
+[addresses]
+astrologistics = "0x0"
