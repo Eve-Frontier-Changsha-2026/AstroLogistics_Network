@@ -761,3 +761,10 @@ public fun contract_to_storage(c: &CourierContract): ID { c.to_storage }
 public fun contract_pickup_deadline(c: &CourierContract): u64 { c.pickup_deadline }
 public fun contract_confirm_deadline(c: &CourierContract): u64 { c.confirm_deadline }
 public fun contract_dispute_deadline(c: &CourierContract): u64 { c.dispute_deadline }
+
+/// Get the contract_id from a CourierBadge (needed by seal_policy)
+public fun badge_contract_id(badge: &CourierBadge): ID { badge.contract_id }
+
+/// Status constant getters (needed by seal_policy to avoid magic numbers)
+public fun status_accepted(): u8 { STATUS_ACCEPTED }
+public fun status_pending_confirm(): u8 { STATUS_PENDING_CONFIRM }

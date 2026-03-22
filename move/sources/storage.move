@@ -488,6 +488,34 @@ public(package) fun deposit_cargo(
     receipt
 }
 
+// ============ Encrypted Coords (Seal integration) ============
+
+/// Marker key for encrypted coordinates dynamic_field on Storage
+public struct EncryptedCoordsKey has copy, drop, store {}
+
+/// Store encrypted coordinates on a storage (AdminCap gated).
+public fun set_encrypted_coords(
+    storage: &mut Storage,
+    cap: &AdminCap,
+    encrypted_data: vector<u8>,
+) {
+    assert!(cap.storage_id == object::id(storage), E_CAP_MISMATCH);
+    if (dynamic_field::exists_(&storage.id, EncryptedCoordsKey {})) {
+        *dynamic_field::borrow_mut(&mut storage.id, EncryptedCoordsKey {}) = encrypted_data;
+    } else {
+        dynamic_field::add(&mut storage.id, EncryptedCoordsKey {}, encrypted_data);
+    };
+}
+
+/// Get encrypted coordinates. Returns empty vector if not set.
+public fun get_encrypted_coords(storage: &Storage): vector<u8> {
+    if (dynamic_field::exists_(&storage.id, EncryptedCoordsKey {})) {
+        *dynamic_field::borrow(&storage.id, EncryptedCoordsKey {})
+    } else {
+        vector[]
+    }
+}
+
 // ============ Guild Integration ============
 
 /// Set guild_id on a storage (AdminCap gated). Uses dynamic_field (upgrade-safe).
