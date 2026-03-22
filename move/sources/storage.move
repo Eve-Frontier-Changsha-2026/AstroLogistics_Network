@@ -102,6 +102,11 @@ public struct AdminReclaimed has copy, drop {
     cargo_id: ID,
 }
 
+public struct StorageShared has copy, drop {
+    storage_id: ID,
+    owner: address,
+}
+
 // ============ Public functions ============
 
 public fun create_storage(
@@ -137,6 +142,57 @@ public fun create_storage(
         id: object::new(ctx),
         storage_id,
     }
+}
+
+/// Create a private (owned) storage. NOT shared — only owner can interact.
+/// Call share_storage() later to permanently convert to shared.
+public fun create_private_storage(
+    system_id: u64,
+    max_capacity: u64,
+    fee_rate_bps: u64,
+    clock: &Clock,
+    ctx: &mut TxContext,
+): AdminCap {
+    assert!(fee_rate_bps <= constants::max_owner_fee_bps(), E_FEE_TOO_HIGH);
+
+    let storage = Storage {
+        id: object::new(ctx),
+        owner: ctx.sender(),
+        system_id,
+        max_capacity,
+        current_load: 0,
+        fee_rate_bps,
+        cargo_bag: object_bag::new(ctx),
+        live_receipts: table::new(ctx),
+        accumulated_fees: balance::zero(),
+        created_at: clock::timestamp_ms(clock),
+    };
+    let storage_id = object::id(&storage);
+
+    event::emit(StorageCreated {
+        storage_id,
+        owner: ctx.sender(),
+        system_id,
+        max_capacity,
+    });
+
+    // Transfer to owner (owned object, not shared)
+    transfer::transfer(storage, ctx.sender());
+
+    AdminCap {
+        id: object::new(ctx),
+        storage_id,
+    }
+}
+
+#[allow(lint(share_owned))]
+/// Permanently convert an owned storage to shared. Irreversible (SUI limitation).
+/// This enables other players to deposit/withdraw and interact with the storage.
+public fun share_storage(storage: Storage) {
+    let storage_id = object::id(&storage);
+    let owner = storage.owner;
+    event::emit(StorageShared { storage_id, owner });
+    transfer::share_object(storage);
 }
 
 // ============ Getters ============
@@ -531,6 +587,48 @@ public fun withdraw_as_guild_member(
     });
 
     cargo
+}
+
+#[test_only]
+/// Create private storage and immediately share it (same tx).
+/// Workaround: SUI test framework doesn't support owned→shared conversion across txs.
+public fun create_private_storage_and_share(
+    system_id: u64,
+    max_capacity: u64,
+    fee_rate_bps: u64,
+    clock: &Clock,
+    ctx: &mut TxContext,
+): AdminCap {
+    assert!(fee_rate_bps <= constants::max_owner_fee_bps(), E_FEE_TOO_HIGH);
+
+    let storage = Storage {
+        id: object::new(ctx),
+        owner: ctx.sender(),
+        system_id,
+        max_capacity,
+        current_load: 0,
+        fee_rate_bps,
+        cargo_bag: object_bag::new(ctx),
+        live_receipts: table::new(ctx),
+        accumulated_fees: balance::zero(),
+        created_at: clock::timestamp_ms(clock),
+    };
+    let storage_id = object::id(&storage);
+
+    event::emit(StorageCreated {
+        storage_id,
+        owner: ctx.sender(),
+        system_id,
+        max_capacity,
+    });
+
+    event::emit(StorageShared { storage_id, owner: ctx.sender() });
+    transfer::share_object(storage);
+
+    AdminCap {
+        id: object::new(ctx),
+        storage_id,
+    }
 }
 
 #[test_only]

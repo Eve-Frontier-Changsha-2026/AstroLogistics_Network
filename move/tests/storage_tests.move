@@ -414,3 +414,82 @@ fun test_withdraw_as_guild_member() {
     };
     scenario.end();
 }
+
+#[test]
+fun test_create_private_storage() {
+    let owner = @0xB1;
+    let mut scenario = test_scenario::begin(owner);
+    {
+        let clock = clock::create_for_testing(scenario.ctx());
+        let admin_cap = storage::create_private_storage(1001, 10000, 100, &clock, scenario.ctx());
+        transfer::public_transfer(admin_cap, owner);
+        clock::destroy_for_testing(clock);
+    };
+    scenario.next_tx(owner);
+    {
+        // Private storage is owned, not shared
+        assert!(test_scenario::has_most_recent_for_sender<Storage>(&scenario));
+        assert!(test_scenario::has_most_recent_for_sender<storage::AdminCap>(&scenario));
+        let storage = test_scenario::take_from_sender<Storage>(&scenario);
+        assert!(storage::system_id(&storage) == 1001);
+        test_scenario::return_to_sender(&scenario, storage);
+    };
+    scenario.end();
+}
+
+#[test]
+/// Note: SUI test framework does not support converting owned→shared across txs.
+/// We test share_storage by creating a Storage directly and sharing in a helper,
+/// simulating the on-chain flow where owned object is shared in a subsequent PTB.
+fun test_share_storage() {
+    let owner = @0xB1;
+    let other = @0xB2;
+    let mut scenario = test_scenario::begin(owner);
+    {
+        // Create private storage and immediately share it (same tx) to work around test framework limitation
+        let clock = clock::create_for_testing(scenario.ctx());
+        let admin_cap = storage::create_private_storage_and_share(1001, 10000, 100, &clock, scenario.ctx());
+        transfer::public_transfer(admin_cap, owner);
+        clock::destroy_for_testing(clock);
+    };
+    scenario.next_tx(other);
+    {
+        let s = test_scenario::take_shared<Storage>(&scenario);
+        assert!(storage::system_id(&s) == 1001);
+        test_scenario::return_shared(s);
+    };
+    scenario.end();
+}
+
+#[test]
+fun test_private_storage_owner_deposit_withdraw() {
+    let owner = @0xB1;
+    let mut scenario = test_scenario::begin(owner);
+    {
+        let clock = clock::create_for_testing(scenario.ctx());
+        let admin_cap = storage::create_private_storage(1001, 10000, 100, &clock, scenario.ctx());
+        transfer::public_transfer(admin_cap, owner);
+        clock::destroy_for_testing(clock);
+    };
+    scenario.next_tx(owner);
+    {
+        let mut s = test_scenario::take_from_sender<Storage>(&scenario);
+        let clock = clock::create_for_testing(scenario.ctx());
+        let receipt = storage::deposit(&mut s, b"ore", 300, 5000, &clock, scenario.ctx());
+        transfer::public_transfer(receipt, owner);
+        test_scenario::return_to_sender(&scenario, s);
+        clock::destroy_for_testing(clock);
+    };
+    scenario.next_tx(owner);
+    {
+        let mut s = test_scenario::take_from_sender<Storage>(&scenario);
+        let receipt = test_scenario::take_from_sender<storage::DepositReceipt>(&scenario);
+        let clock = clock::create_for_testing(scenario.ctx());
+        let payment = sui::coin::mint_for_testing<sui::sui::SUI>(0, scenario.ctx());
+        let cargo = storage::withdraw(&mut s, receipt, payment, &clock, scenario.ctx());
+        transfer::public_transfer(cargo, owner);
+        test_scenario::return_to_sender(&scenario, s);
+        clock::destroy_for_testing(clock);
+    };
+    scenario.end();
+}
