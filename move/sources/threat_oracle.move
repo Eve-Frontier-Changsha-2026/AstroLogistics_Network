@@ -10,6 +10,7 @@ const E_BATCH_TOO_LARGE: u64 = 0;
 const E_BATCH_LENGTH_MISMATCH: u64 = 1;
 const E_COOLDOWN_NOT_MET: u64 = 2;
 const E_ROUTE_TOO_LONG: u64 = 3;
+const E_DISABLED: u64 = 4;
 
 // ============ Structs ============
 
@@ -57,7 +58,14 @@ public struct ReporterRevoked has copy, drop {
 
 // ============ Public functions ============
 
-public fun create_threat_map(decay_lambda: u64, ctx: &mut TxContext): OracleCap {
+/// Disabled after initial deployment — prevents rogue OracleCap minting (Fix C-1).
+public fun create_threat_map(_decay_lambda: u64, _ctx: &mut TxContext): OracleCap {
+    abort E_DISABLED
+}
+
+#[test_only]
+/// Test-only: creates ThreatMap + OracleCap (original implementation).
+public fun create_threat_map_for_testing(decay_lambda: u64, ctx: &mut TxContext): OracleCap {
     let map = ThreatMap {
         id: object::new(ctx),
         danger_scores: table::new(ctx),

@@ -30,8 +30,9 @@ fun test_deposit_exact_capacity() {
     scenario.end();
 }
 
-/// Zero weight cargo
+/// Zero weight cargo — should fail (Fix H-5)
 #[test]
+#[expected_failure(abort_code = storage::E_ZERO_WEIGHT)]
 fun test_deposit_zero_weight() {
     let admin = @0xAD;
     let user = @0x01;
@@ -47,7 +48,6 @@ fun test_deposit_zero_weight() {
         let mut s = test_scenario::take_shared<Storage>(&scenario);
         let clock = clock::create_for_testing(scenario.ctx());
         let receipt = storage::deposit(&mut s, b"intel", 0, 500, &clock, scenario.ctx());
-        assert!(storage::available_capacity(&s) == 100);
         transfer::public_transfer(receipt, user);
         test_scenario::return_shared(s);
         clock::destroy_for_testing(clock);
@@ -55,9 +55,10 @@ fun test_deposit_zero_weight() {
     scenario.end();
 }
 
-/// Zero value cargo — fee should be 0
+/// Zero value cargo — should fail (Fix H-5)
 #[test]
-fun test_deposit_zero_value_withdraw() {
+#[expected_failure(abort_code = storage::E_ZERO_VALUE)]
+fun test_deposit_zero_value_fails() {
     let admin = @0xAD;
     let user = @0x01;
     let mut scenario = test_scenario::begin(admin);
@@ -73,19 +74,6 @@ fun test_deposit_zero_value_withdraw() {
         let clock = clock::create_for_testing(scenario.ctx());
         let receipt = storage::deposit(&mut s, b"junk", 10, 0, &clock, scenario.ctx());
         transfer::public_transfer(receipt, user);
-        test_scenario::return_shared(s);
-        clock::destroy_for_testing(clock);
-    };
-    scenario.next_tx(user);
-    {
-        let mut s = test_scenario::take_shared<Storage>(&scenario);
-        let receipt = test_scenario::take_from_sender<storage::DepositReceipt>(&scenario);
-        let mut clock = clock::create_for_testing(scenario.ctx());
-        clock::set_for_testing(&mut clock, 86_400_000); // 1 day
-        let payment = sui::coin::mint_for_testing<sui::sui::SUI>(0, scenario.ctx());
-        let cargo = storage::withdraw(&mut s, receipt, payment, &clock, scenario.ctx());
-        assert!(storage::cargo_weight(&cargo) == 10);
-        transfer::public_transfer(cargo, user);
         test_scenario::return_shared(s);
         clock::destroy_for_testing(clock);
     };

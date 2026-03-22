@@ -4,6 +4,7 @@ use sui::coin::{Self, Coin};
 use sui::balance::{Self, Balance};
 use sui::sui::SUI;
 use sui::event;
+use sui::dynamic_field;
 use astrologistics::storage::Storage;
 use astrologistics::fuel::FUEL;
 use astrologistics::constants;
@@ -18,6 +19,7 @@ const E_RECEIPT_MISMATCH: u64 = 4;
 const E_NO_FUEL_SUPPLIED: u64 = 5;
 const E_INSUFFICIENT_PAYMENT: u64 = 6;
 const E_ALPHA_TOO_HIGH: u64 = 7;
+const E_OVERFLOW: u64 = 8;
 
 // ============ Structs ============
 
@@ -86,6 +88,12 @@ public struct SupplierWithdrawn has copy, drop {
     receipt_id: ID,
     fuel_returned: u64,
     revenue_claimed: u64,
+}
+
+public struct OwnerFeesClaimed has copy, drop {
+    station_id: ID,
+    owner: address,
+    amount: u64,
 }
 
 public struct PricingUpdated has copy, drop {
@@ -214,7 +222,10 @@ public fun buy_fuel(
     let price = current_price(station);
     assert!(price <= max_price_per_unit, E_PRICE_EXCEEDS_MAX);
 
-    let total_cost = price * amount;
+    // Fix H-2: u128 to prevent price * amount overflow
+    let total_cost_128 = (price as u128) * (amount as u128);
+    assert!(total_cost_128 <= 18_446_744_073_709_551_615, E_OVERFLOW);
+    let total_cost = (total_cost_128 as u64);
     assert!(coin::value(&payment) >= total_cost, E_INSUFFICIENT_PAYMENT);
 
     // Take exact payment, return change
@@ -238,6 +249,17 @@ public fun buy_fuel(
         let fp = (constants::fp_scale() as u128);
         station.acc_reward_per_share = station.acc_reward_per_share +
             (((supplier_pool as u128) * fp / (station.total_supplied as u128)) as u64);
+    };
+
+    // Fix H-3: track owner fees via dynamic field for later claim
+    if (owner_cut > 0) {
+        let key = b"owner_fees";
+        if (dynamic_field::exists_(&station.id, key)) {
+            let acc: &mut u64 = dynamic_field::borrow_mut(&mut station.id, key);
+            *acc = *acc + owner_cut;
+        } else {
+            dynamic_field::add(&mut station.id, key, owner_cut);
+        };
     };
 
     // Add revenue to pool
@@ -390,9 +412,15 @@ public fun withdraw_supplier(
     let reserve_balance = balance::value(&station.fuel_reserve);
     let actual_fuel = if (fuel_share > reserve_balance) { reserve_balance } else { fuel_share };
 
-    // Update station state
+    // Update station state (Fix M-1: also decrease max_fuel)
     station.current_fuel = station.current_fuel - actual_fuel;
     station.total_supplied = station.total_supplied - receipt.supply_record.amount;
+    // Fix M-1: reduce max_fuel to prevent permanent scarcity inflation
+    if (station.max_fuel >= actual_fuel) {
+        station.max_fuel = station.max_fuel - actual_fuel;
+    } else {
+        station.max_fuel = 0;
+    };
 
     // Fix C2: take from reserve instead of minting
     let fuel_coin = if (actual_fuel > 0) {
@@ -435,6 +463,36 @@ public fun update_fee(station: &mut FuelStation, cap: &StationCap, owner_fee_bps
     assert!(cap.station_id == object::id(station), E_CAP_MISMATCH);
     assert!(owner_fee_bps <= constants::max_owner_fee_bps(), E_FEE_TOO_HIGH);
     station.owner_fee_bps = owner_fee_bps;
+}
+
+/// Fix H-3: Station owner claims accumulated fees from revenue_pool.
+public fun claim_owner_fees(
+    station: &mut FuelStation,
+    cap: &StationCap,
+    ctx: &mut TxContext,
+): Coin<SUI> {
+    assert!(cap.station_id == object::id(station), E_CAP_MISMATCH);
+    let key = b"owner_fees";
+    if (dynamic_field::exists_(&station.id, key)) {
+        let acc: &mut u64 = dynamic_field::borrow_mut(&mut station.id, key);
+        let amount = *acc;
+        let pool_bal = balance::value(&station.revenue_pool);
+        let actual = if (amount > pool_bal) { pool_bal } else { amount };
+        *acc = *acc - actual;
+        if (actual > 0) {
+            let payout = balance::split(&mut station.revenue_pool, actual);
+            event::emit(OwnerFeesClaimed {
+                station_id: object::id(station),
+                owner: station.owner,
+                amount: actual,
+            });
+            coin::from_balance(payout, ctx)
+        } else {
+            coin::zero(ctx)
+        }
+    } else {
+        coin::zero(ctx)
+    }
 }
 
 // ============ Getters ============

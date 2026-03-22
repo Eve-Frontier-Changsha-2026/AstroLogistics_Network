@@ -20,7 +20,7 @@ fun setup_world(): test_scenario::Scenario {
         let cap2 = storage::create_storage(2002, 10000, 0, &clock, scenario.ctx());
         transfer::public_transfer(cap1, admin);
         transfer::public_transfer(cap2, admin);
-        let oracle_cap = threat_oracle::create_threat_map(100, scenario.ctx());
+        let oracle_cap = threat_oracle::create_threat_map_for_testing(100, scenario.ctx());
         transfer::public_transfer(oracle_cap, admin);
         clock::destroy_for_testing(clock);
     };

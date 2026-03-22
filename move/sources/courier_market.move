@@ -20,6 +20,8 @@ const E_STORAGE_MISMATCH: u64 = 6;
 const E_DEADLINE_TOO_SHORT: u64 = 7;
 const E_SAME_STORAGE: u64 = 8;         // Fix Low
 const E_REWARD_TOO_LOW: u64 = 9;      // Fix H8
+const E_DEADLINE_EXPIRED: u64 = 10;    // Fix M-3
+const E_CONTRACT_EXPIRED: u64 = 11;    // Fix M-4
 
 // Status constants (Fix M6: removed IN_DELIVERY)
 const STATUS_OPEN: u8 = 0;
@@ -204,6 +206,8 @@ public fun accept_contract(
     assert!(coin::value(&deposit) >= contract.min_courier_deposit, E_DEPOSIT_TOO_LOW);
 
     let now = clock::timestamp_ms(clock);
+    // Fix M-4: reject if contract already expired
+    assert!(now < contract.deadline, E_CONTRACT_EXPIRED);
     let deposit_amount = coin::value(&deposit);
     contract.courier = option::some(ctx.sender());
     contract.status = STATUS_ACCEPTED;
@@ -269,6 +273,9 @@ public fun pickup_and_deliver(
     assert!(badge.courier == ctx.sender(), E_NOT_COURIER);
     assert!(object::id(from_storage) == contract.from_storage, E_STORAGE_MISMATCH);
     assert!(object::id(to_storage) == contract.to_storage, E_STORAGE_MISMATCH);
+    // Fix M-3: check delivery deadline
+    let now_check = clock::timestamp_ms(clock);
+    assert!(now_check <= contract.deadline, E_DEADLINE_EXPIRED);
 
     // Extract receipt from contract
     let receipt = option::extract(&mut contract.cargo_receipt);
@@ -397,6 +404,7 @@ public fun resolve_dispute(
     ctx: &mut TxContext,
 ) {
     assert!(contract.status == STATUS_DISPUTED, E_WRONG_STATUS);
+    assert!(badge.contract_id == object::id(&contract), E_BADGE_MISMATCH); // Fix H-1
 
     let courier_addr = badge.courier;
     let CourierBadge { id: badge_id, contract_id: _, courier: _ } = badge;
@@ -412,13 +420,15 @@ public fun resolve_dispute(
         dispute_deadline: _, created_at: _,
     } = contract;
 
-    // Handle receipt: winner gets it
+    // Handle receipt: winner gets it (Fix H-4: ruling=2 split → client keeps cargo)
     if (option::is_some(&cargo_receipt)) {
         let r = option::destroy_some(cargo_receipt);
-        if (ruling == 0) {
-            transfer::public_transfer(r, client);
-        } else {
+        if (ruling == 1) {
+            // Only courier-wins sends receipt to courier
             transfer::public_transfer(r, courier_addr);
+        } else {
+            // Client-wins (0) or split (2) → client keeps their cargo
+            transfer::public_transfer(r, client);
         };
     } else {
         option::destroy_none(cargo_receipt);

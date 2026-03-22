@@ -19,6 +19,8 @@ const E_GRACE_PERIOD_NOT_MET: u64 = 5;
 const E_CARGO_NOT_FOUND: u64 = 6;
 const E_FEE_TOO_HIGH: u64 = 7;
 const E_INSUFFICIENT_FEE: u64 = 8;
+const E_ZERO_WEIGHT: u64 = 9;       // Fix H-5
+const E_ZERO_VALUE: u64 = 10;       // Fix H-5
 
 // ============ Structs ============
 
@@ -174,6 +176,9 @@ public fun deposit(
     clock: &Clock,
     ctx: &mut TxContext,
 ): DepositReceipt {
+    // Fix H-5: reject zero-weight/value cargo
+    assert!(weight > 0, E_ZERO_WEIGHT);
+    assert!(value > 0, E_ZERO_VALUE);
     assert!(storage.current_load + weight <= storage.max_capacity, E_CAPACITY_EXCEEDED);
 
     let cargo = Cargo {

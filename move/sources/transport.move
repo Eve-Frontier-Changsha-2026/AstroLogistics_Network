@@ -174,6 +174,7 @@ public fun complete_transport(
     ctx: &mut TxContext,
 ): DepositReceipt {
     assert!(order.status == 1, E_WRONG_STATUS);
+    assert!(order.sender == ctx.sender(), E_NOT_OWNER); // Fix M-5: sender auth
     assert!(object::id(from_storage) == order.from_storage, E_STORAGE_MISMATCH);
     assert!(object::id(to_storage) == order.to_storage, E_STORAGE_MISMATCH);
 

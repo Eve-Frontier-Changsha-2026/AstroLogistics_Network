@@ -10,7 +10,7 @@ fun test_create_threat_map() {
     let admin = @0xAD;
     let mut scenario = test_scenario::begin(admin);
     {
-        let oracle_cap = threat_oracle::create_threat_map(100, scenario.ctx());
+        let oracle_cap = threat_oracle::create_threat_map_for_testing(100, scenario.ctx());
         transfer::public_transfer(oracle_cap, admin);
     };
     scenario.next_tx(admin);
@@ -27,7 +27,7 @@ fun test_batch_update_and_query() {
     let admin = @0xAD;
     let mut scenario = test_scenario::begin(admin);
     {
-        let cap = threat_oracle::create_threat_map(100, scenario.ctx());
+        let cap = threat_oracle::create_threat_map_for_testing(100, scenario.ctx());
         transfer::public_transfer(cap, admin);
     };
     scenario.next_tx(admin);
@@ -52,7 +52,7 @@ fun test_reporter_incident_with_cooldown() {
     let courier = @0xC1;
     let mut scenario = test_scenario::begin(admin);
     {
-        let oracle_cap = threat_oracle::create_threat_map(100, scenario.ctx());
+        let oracle_cap = threat_oracle::create_threat_map_for_testing(100, scenario.ctx());
         transfer::public_transfer(oracle_cap, admin);
     };
     scenario.next_tx(admin);
@@ -85,7 +85,7 @@ fun test_reporter_cooldown_enforced() {
     let courier = @0xC1;
     let mut scenario = test_scenario::begin(admin);
     {
-        let oracle_cap = threat_oracle::create_threat_map(100, scenario.ctx());
+        let oracle_cap = threat_oracle::create_threat_map_for_testing(100, scenario.ctx());
         transfer::public_transfer(oracle_cap, admin);
     };
     scenario.next_tx(admin);
@@ -117,7 +117,7 @@ fun test_danger_score_decays_over_time() {
     let admin = @0xAD;
     let mut scenario = test_scenario::begin(admin);
     {
-        let oracle_cap = threat_oracle::create_threat_map(500, scenario.ctx()); // lambda=0.5/hr
+        let oracle_cap = threat_oracle::create_threat_map_for_testing(500, scenario.ctx()); // lambda=0.5/hr
         transfer::public_transfer(oracle_cap, admin);
     };
     scenario.next_tx(admin);
@@ -144,7 +144,7 @@ fun test_max_danger_on_route() {
     let admin = @0xAD;
     let mut scenario = test_scenario::begin(admin);
     {
-        let oracle_cap = threat_oracle::create_threat_map(100, scenario.ctx());
+        let oracle_cap = threat_oracle::create_threat_map_for_testing(100, scenario.ctx());
         transfer::public_transfer(oracle_cap, admin);
     };
     scenario.next_tx(admin);

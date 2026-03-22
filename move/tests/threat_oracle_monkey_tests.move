@@ -11,7 +11,7 @@ fun test_query_nonexistent_system() {
     let admin = @0xAD;
     let mut scenario = test_scenario::begin(admin);
     {
-        let cap = threat_oracle::create_threat_map(100, scenario.ctx());
+        let cap = threat_oracle::create_threat_map_for_testing(100, scenario.ctx());
         transfer::public_transfer(cap, admin);
     };
     scenario.next_tx(admin);
@@ -31,7 +31,7 @@ fun test_empty_route_max_danger() {
     let admin = @0xAD;
     let mut scenario = test_scenario::begin(admin);
     {
-        let cap = threat_oracle::create_threat_map(100, scenario.ctx());
+        let cap = threat_oracle::create_threat_map_for_testing(100, scenario.ctx());
         transfer::public_transfer(cap, admin);
     };
     scenario.next_tx(admin);
@@ -52,7 +52,7 @@ fun test_batch_update_empty() {
     let admin = @0xAD;
     let mut scenario = test_scenario::begin(admin);
     {
-        let cap = threat_oracle::create_threat_map(100, scenario.ctx());
+        let cap = threat_oracle::create_threat_map_for_testing(100, scenario.ctx());
         transfer::public_transfer(cap, admin);
     };
     scenario.next_tx(admin);
@@ -74,7 +74,7 @@ fun test_extreme_decay() {
     let admin = @0xAD;
     let mut scenario = test_scenario::begin(admin);
     {
-        let cap = threat_oracle::create_threat_map(900, scenario.ctx()); // aggressive lambda
+        let cap = threat_oracle::create_threat_map_for_testing(900, scenario.ctx()); // aggressive lambda
         transfer::public_transfer(cap, admin);
     };
     scenario.next_tx(admin);
@@ -101,7 +101,7 @@ fun test_revoke_reporter() {
     let courier = @0xC1;
     let mut scenario = test_scenario::begin(admin);
     {
-        let cap = threat_oracle::create_threat_map(100, scenario.ctx());
+        let cap = threat_oracle::create_threat_map_for_testing(100, scenario.ctx());
         transfer::public_transfer(cap, admin);
     };
     scenario.next_tx(admin);
@@ -121,7 +121,7 @@ fun test_batch_too_large() {
     let admin = @0xAD;
     let mut scenario = test_scenario::begin(admin);
     {
-        let cap = threat_oracle::create_threat_map(100, scenario.ctx());
+        let cap = threat_oracle::create_threat_map_for_testing(100, scenario.ctx());
         transfer::public_transfer(cap, admin);
     };
     scenario.next_tx(admin);
@@ -153,7 +153,7 @@ fun test_route_too_long() {
     let admin = @0xAD;
     let mut scenario = test_scenario::begin(admin);
     {
-        let cap = threat_oracle::create_threat_map(100, scenario.ctx());
+        let cap = threat_oracle::create_threat_map_for_testing(100, scenario.ctx());
         transfer::public_transfer(cap, admin);
     };
     scenario.next_tx(admin);
