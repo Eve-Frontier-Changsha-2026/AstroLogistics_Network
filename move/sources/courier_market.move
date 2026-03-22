@@ -6,7 +6,9 @@ use sui::sui::SUI;
 use sui::clock::{Self, Clock};
 use sui::event;
 use astrologistics::storage::{Self, Storage, DepositReceipt};
+use sui::dynamic_field;
 use astrologistics::threat_oracle::{Self, OracleCap};
+use astrologistics::guild::{Self, Guild, GuildMemberCap};
 use astrologistics::constants;
 
 // ============ Error codes ============
@@ -22,6 +24,8 @@ const E_SAME_STORAGE: u64 = 8;         // Fix Low
 const E_REWARD_TOO_LOW: u64 = 9;      // Fix H8
 const E_DEADLINE_EXPIRED: u64 = 10;    // Fix M-3
 const E_CONTRACT_EXPIRED: u64 = 11;    // Fix M-4
+const E_NOT_GUILD_MEMBER_SETTLE: u64 = 12;
+const E_GUILD_MISMATCH_SETTLE: u64 = 13;
 
 // Status constants (Fix M6: removed IN_DELIVERY)
 const STATUS_OPEN: u8 = 0;
@@ -63,6 +67,15 @@ public struct CourierBadge has key, store {
     id: UID,
     contract_id: ID,
     courier: address,
+}
+
+/// Dynamic field key for guild bonus info on CourierContract
+public struct GuildBonusKey has copy, drop, store {}
+
+/// Guild bonus metadata stored on CourierContract via dynamic_field
+public struct GuildBonusInfo has copy, drop, store {
+    amount: u64,
+    guild_id: ID,
 }
 
 // ============ Events ============
@@ -195,6 +208,85 @@ public fun create_contract(
     contract_id
 }
 
+/// Create a courier contract with guild bonus. Client locks reward + cancel_penalty + guild_bonus.
+/// Guild members who settle get reward + guild_bonus; non-guild couriers get reward only.
+public fun create_contract_with_guild_bonus(
+    from_storage: &Storage,
+    to_storage: &Storage,
+    receipt: DepositReceipt,
+    reward: Coin<SUI>,
+    cancel_penalty: Coin<SUI>,
+    guild_bonus: Coin<SUI>,
+    min_courier_deposit: u64,
+    route: vector<u64>,
+    deadline_duration: u64,
+    required_guild_id: ID,
+    clock: &Clock,
+    ctx: &mut TxContext,
+): ID {
+    let now = clock::timestamp_ms(clock);
+    assert!(deadline_duration >= MIN_DEADLINE_MS, E_DEADLINE_TOO_SHORT);
+    assert!(object::id(from_storage) != object::id(to_storage), E_SAME_STORAGE);
+    assert!(coin::value(&reward) >= constants::min_contract_reward(), E_REWARD_TOO_LOW);
+
+    let cargo_id = storage::receipt_cargo_id(&receipt);
+    let cargo_value = storage::cargo_value_by_id(from_storage, cargo_id);
+    let effective_min_deposit = if (min_courier_deposit > cargo_value) {
+        min_courier_deposit
+    } else {
+        cargo_value
+    };
+
+    let reward_amount = coin::value(&reward);
+    let guild_bonus_amount = coin::value(&guild_bonus);
+    let mut client_balance = coin::into_balance(reward);
+    balance::join(&mut client_balance, coin::into_balance(cancel_penalty));
+    balance::join(&mut client_balance, coin::into_balance(guild_bonus));
+
+    let mut contract = CourierContract {
+        id: object::new(ctx),
+        client: ctx.sender(),
+        courier: option::none(),
+        from_storage: object::id(from_storage),
+        to_storage: object::id(to_storage),
+        cargo_receipt: option::some(receipt),
+        reward: reward_amount,
+        client_deposit: client_balance,
+        courier_deposit: balance::zero(),
+        min_courier_deposit: effective_min_deposit,
+        cargo_value,
+        route,
+        status: STATUS_OPEN,
+        deadline: now + deadline_duration,
+        pickup_deadline: 0,
+        confirm_deadline: 0,
+        dispute_deadline: 0,
+        created_at: now,
+    };
+
+    if (guild_bonus_amount > 0) {
+        dynamic_field::add(
+            &mut contract.id,
+            GuildBonusKey {},
+            GuildBonusInfo { amount: guild_bonus_amount, guild_id: required_guild_id },
+        );
+    };
+
+    let contract_id = object::id(&contract);
+
+    event::emit(ContractCreated {
+        contract_id,
+        client: ctx.sender(),
+        from_storage: object::id(from_storage),
+        to_storage: object::id(to_storage),
+        reward: reward_amount,
+        deadline: now + deadline_duration,
+    });
+
+    transfer::share_object(contract);
+    contract_id
+}
+
 /// Courier accepts the contract. Locks deposit, receives CourierBadge.
 public fun accept_contract(
     contract: &mut CourierContract,
@@ -231,11 +323,18 @@ public fun accept_contract(
 
 /// Client cancels contract (only Open status).
 public fun cancel_by_client(
-    contract: CourierContract,
+    mut contract: CourierContract,
     ctx: &mut TxContext,
 ): (DepositReceipt, Coin<SUI>) {
     assert!(contract.status == STATUS_OPEN, E_WRONG_STATUS);
     assert!(contract.client == ctx.sender(), E_NOT_CLIENT);
+
+    // Clean up guild bonus dynamic_field if present
+    if (dynamic_field::exists_with_type<GuildBonusKey, GuildBonusInfo>(
+        &contract.id, GuildBonusKey {}
+    )) {
+        let _: GuildBonusInfo = dynamic_field::remove(&mut contract.id, GuildBonusKey {});
+    };
 
     let contract_id = object::id(&contract);
     let CourierContract {
@@ -315,7 +414,7 @@ public fun confirm_delivery(
 /// Only callable after confirm_delivery (status = Delivered).
 #[allow(lint(self_transfer))]
 public fun settle(
-    contract: CourierContract,
+    mut contract: CourierContract,
     badge: CourierBadge,
     oracle_cap: &OracleCap,
     ctx: &mut TxContext,
@@ -326,6 +425,13 @@ public fun settle(
     let courier_addr = badge.courier;
     let CourierBadge { id: badge_id, contract_id: _, courier: _ } = badge;
     object::delete(badge_id);
+
+    // Clean up guild bonus dynamic_field if present
+    if (dynamic_field::exists_with_type<GuildBonusKey, GuildBonusInfo>(
+        &contract.id, GuildBonusKey {}
+    )) {
+        let _: GuildBonusInfo = dynamic_field::remove(&mut contract.id, GuildBonusKey {});
+    };
 
     // Fix C3: extract ID before destructure/delete
     let contract_id = object::id(&contract);
@@ -374,6 +480,77 @@ public fun settle(
     object::delete(id);
 }
 
+/// Settle as a guild member. Courier gets reward + guild_bonus.
+/// Only works if contract has GuildBonusInfo and courier is a valid guild member.
+#[allow(lint(self_transfer))]
+public fun settle_as_guild_member(
+    mut contract: CourierContract,
+    badge: CourierBadge,
+    oracle_cap: &OracleCap,
+    guild: &Guild,
+    guild_cap: &GuildMemberCap,
+    ctx: &mut TxContext,
+) {
+    assert!(contract.status == STATUS_DELIVERED, E_WRONG_STATUS);
+    assert!(badge.contract_id == object::id(&contract), E_BADGE_MISMATCH);
+
+    let guild_bonus_amount = if (dynamic_field::exists_with_type<GuildBonusKey, GuildBonusInfo>(
+        &contract.id, GuildBonusKey {}
+    )) {
+        let info: GuildBonusInfo = dynamic_field::remove(&mut contract.id, GuildBonusKey {});
+        assert!(guild::verify_membership(guild, guild_cap), E_NOT_GUILD_MEMBER_SETTLE);
+        assert!(info.guild_id == object::id(guild), E_GUILD_MISMATCH_SETTLE);
+        info.amount
+    } else {
+        0
+    };
+
+    let courier_addr = badge.courier;
+    let CourierBadge { id: badge_id, contract_id: _, courier: _ } = badge;
+    object::delete(badge_id);
+
+    let contract_id = object::id(&contract);
+    let CourierContract {
+        id, client, courier: _, from_storage: _, to_storage: _,
+        cargo_receipt, reward, client_deposit, courier_deposit,
+        min_courier_deposit: _, cargo_value: _, route: _, status: _,
+        deadline: _, pickup_deadline: _, confirm_deadline: _,
+        dispute_deadline: _, created_at: _,
+    } = contract;
+
+    if (option::is_some(&cargo_receipt)) {
+        let r = option::destroy_some(cargo_receipt);
+        transfer::public_transfer(r, client);
+    } else {
+        option::destroy_none(cargo_receipt);
+    };
+
+    let mut client_bal = client_deposit;
+    let total_courier_payout = reward + guild_bonus_amount;
+    let reward_payout = balance::split(&mut client_bal, total_courier_payout);
+    transfer::public_transfer(coin::from_balance(reward_payout, ctx), courier_addr);
+
+    if (balance::value(&client_bal) > 0) {
+        transfer::public_transfer(coin::from_balance(client_bal, ctx), client);
+    } else {
+        balance::destroy_zero(client_bal);
+    };
+
+    transfer::public_transfer(coin::from_balance(courier_deposit, ctx), courier_addr);
+
+    let reporter_cap = threat_oracle::issue_reporter_cap(oracle_cap, courier_addr, 1, ctx);
+    let reporter_cap_id = object::id(&reporter_cap);
+    threat_oracle::transfer_reporter_cap(reporter_cap, courier_addr);
+
+    event::emit(ContractSettled {
+        contract_id,
+        courier_reward: total_courier_payout,
+        reporter_cap_id,
+    });
+
+    object::delete(id);
+}
+
 /// Client raises dispute during PendingConfirm.
 public fun raise_dispute(
     contract: &mut CourierContract,
@@ -397,7 +574,7 @@ public fun raise_dispute(
 /// ruling: 0 = client wins, 1 = courier wins, 2 = split
 #[allow(lint(self_transfer))]
 public fun resolve_dispute(
-    contract: CourierContract,
+    mut contract: CourierContract,
     badge: CourierBadge,
     _oracle_cap: &OracleCap,
     ruling: u8,
@@ -409,6 +586,13 @@ public fun resolve_dispute(
     let courier_addr = badge.courier;
     let CourierBadge { id: badge_id, contract_id: _, courier: _ } = badge;
     object::delete(badge_id);
+
+    // Clean up guild bonus dynamic_field if present
+    if (dynamic_field::exists_with_type<GuildBonusKey, GuildBonusInfo>(
+        &contract.id, GuildBonusKey {}
+    )) {
+        let _: GuildBonusInfo = dynamic_field::remove(&mut contract.id, GuildBonusKey {});
+    };
 
     // Fix C3: extract ID before delete
     let contract_id = object::id(&contract);
@@ -458,13 +642,20 @@ public fun resolve_dispute(
 /// Handles: Open, Accepted, PendingConfirm, Disputed stages. (Fix M6: no InDelivery)
 #[allow(lint(self_transfer))]
 public fun claim_timeout(
-    contract: CourierContract,
+    mut contract: CourierContract,
     clock: &Clock,
     ctx: &mut TxContext,
 ): Coin<SUI> {
     let now = clock::timestamp_ms(clock);
     let keeper = ctx.sender();
     let status = contract.status;
+
+    // Clean up guild bonus dynamic_field if present
+    if (dynamic_field::exists_with_type<GuildBonusKey, GuildBonusInfo>(
+        &contract.id, GuildBonusKey {}
+    )) {
+        let _: GuildBonusInfo = dynamic_field::remove(&mut contract.id, GuildBonusKey {});
+    };
 
     // Fix C3: extract contract_id before destructure
     let contract_id = object::id(&contract);
