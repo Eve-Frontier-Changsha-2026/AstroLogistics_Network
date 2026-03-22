@@ -7,7 +7,9 @@ use sui::balance::{Self, Balance};
 use sui::coin::{Self, Coin};
 use sui::sui::SUI;
 use sui::event;
+use sui::dynamic_field;
 use astrologistics::constants;
+use astrologistics::guild::{Self, Guild, GuildMemberCap};
 
 // ============ Error codes ============
 const E_CAP_MISMATCH: u64 = 0;
@@ -21,8 +23,13 @@ const E_FEE_TOO_HIGH: u64 = 7;
 const E_INSUFFICIENT_FEE: u64 = 8;
 const E_ZERO_WEIGHT: u64 = 9;       // Fix H-5
 const E_ZERO_VALUE: u64 = 10;       // Fix H-5
+const E_NOT_GUILD_MEMBER: u64 = 11;
+const E_NO_GUILD: u64 = 12;
+const E_GUILD_MISMATCH: u64 = 13;
 
 // ============ Structs ============
+
+public struct GuildIdKey has copy, drop, store {}
 
 public struct Storage has key {
     id: UID,
@@ -423,6 +430,107 @@ public(package) fun deposit_cargo(
     });
 
     receipt
+}
+
+// ============ Guild Integration ============
+
+/// Set guild_id on a storage (AdminCap gated). Uses dynamic_field (upgrade-safe).
+public fun set_storage_guild(storage: &mut Storage, cap: &AdminCap, guild_id: ID) {
+    assert!(cap.storage_id == object::id(storage), E_CAP_MISMATCH);
+    if (dynamic_field::exists_(&storage.id, GuildIdKey {})) {
+        *dynamic_field::borrow_mut(&mut storage.id, GuildIdKey {}) = guild_id;
+    } else {
+        dynamic_field::add(&mut storage.id, GuildIdKey {}, guild_id);
+    };
+}
+
+/// Remove guild_id from a storage (AdminCap gated).
+public fun remove_storage_guild(storage: &mut Storage, cap: &AdminCap) {
+    assert!(cap.storage_id == object::id(storage), E_CAP_MISMATCH);
+    if (dynamic_field::exists_(&storage.id, GuildIdKey {})) {
+        let _: ID = dynamic_field::remove(&mut storage.id, GuildIdKey {});
+    };
+}
+
+/// Get guild_id of a storage. Returns None if not set.
+public fun storage_guild_id(storage: &Storage): Option<ID> {
+    if (dynamic_field::exists_(&storage.id, GuildIdKey {})) {
+        option::some(*dynamic_field::borrow(&storage.id, GuildIdKey {}))
+    } else {
+        option::none()
+    }
+}
+
+/// Withdraw with guild member fee discount.
+/// Discount: fee * (BPS_SCALE - guild_fee_discount_bps) / BPS_SCALE
+#[allow(lint(self_transfer))]
+public fun withdraw_as_guild_member(
+    storage: &mut Storage,
+    receipt: DepositReceipt,
+    payment: Coin<SUI>,
+    guild: &Guild,
+    guild_cap: &GuildMemberCap,
+    clock: &Clock,
+    ctx: &mut TxContext,
+): Cargo {
+    // Verify guild membership
+    assert!(guild::verify_membership(guild, guild_cap), E_NOT_GUILD_MEMBER);
+    // Verify storage has a guild and it matches
+    let storage_guild = storage_guild_id(storage);
+    assert!(option::is_some(&storage_guild), E_NO_GUILD);
+    assert!(*option::borrow(&storage_guild) == object::id(guild), E_GUILD_MISMATCH);
+
+    let DepositReceipt { id, storage_id, cargo_id, depositor: _ } = receipt;
+    assert!(storage_id == object::id(storage), E_RECEIPT_MISMATCH);
+    assert!(object_bag::contains(&storage.cargo_bag, cargo_id), E_CARGO_NOT_FOUND);
+    object::delete(id);
+
+    if (table::contains(&storage.live_receipts, cargo_id)) {
+        table::remove(&mut storage.live_receipts, cargo_id);
+    };
+
+    let cargo: Cargo = object_bag::remove(&mut storage.cargo_bag, cargo_id);
+    storage.current_load = storage.current_load - cargo.weight;
+
+    // Calculate fee with guild discount
+    let now = clock::timestamp_ms(clock);
+    let duration_ms = if (now > cargo.deposited_at) { now - cargo.deposited_at } else { 0 };
+    let days_stored = duration_ms / 86_400_000;
+    let base_fee = if (days_stored == 0) { 0 } else {
+        (((cargo.value as u128) * (storage.fee_rate_bps as u128) * (days_stored as u128)
+          / (constants::bps_scale() as u128)) as u64)
+    };
+    // Apply guild discount
+    let fee = ((base_fee as u128)
+        * ((constants::bps_scale() - constants::guild_fee_discount_bps()) as u128)
+        / (constants::bps_scale() as u128)) as u64;
+
+    assert!(coin::value(&payment) >= fee, E_INSUFFICIENT_FEE);
+    if (fee > 0) {
+        let mut payment_balance = coin::into_balance(payment);
+        let fee_balance = balance::split(&mut payment_balance, fee);
+        balance::join(&mut storage.accumulated_fees, fee_balance);
+        if (balance::value(&payment_balance) > 0) {
+            transfer::public_transfer(coin::from_balance(payment_balance, ctx), ctx.sender());
+        } else {
+            balance::destroy_zero(payment_balance);
+        };
+    } else {
+        if (coin::value(&payment) > 0) {
+            transfer::public_transfer(payment, ctx.sender());
+        } else {
+            coin::destroy_zero(payment);
+        };
+    };
+
+    event::emit(CargoWithdrawn {
+        storage_id: object::id(storage),
+        cargo_id,
+        withdrawer: ctx.sender(),
+        storage_fee: fee,
+    });
+
+    cargo
 }
 
 #[test_only]

@@ -4,6 +4,7 @@ module astrologistics::storage_tests;
 use sui::test_scenario;
 use sui::clock;
 use astrologistics::storage::{Self, Storage, AdminCap};
+use astrologistics::guild::{Self, Guild, GuildMemberCap};
 
 #[test]
 fun test_create_storage() {
@@ -297,6 +298,119 @@ fun test_update_fee_rate_wrong_cap() {
         test_scenario::return_to_sender(&scenario, cap2);
         test_scenario::return_shared(s1);
         test_scenario::return_shared(s2);
+    };
+    scenario.end();
+}
+
+#[test]
+fun test_set_storage_guild() {
+    let admin = @0xAD;
+    let mut scenario = test_scenario::begin(admin);
+    {
+        let clock = clock::create_for_testing(scenario.ctx());
+        let admin_cap = storage::create_storage(1001, 10000, 100, &clock, scenario.ctx());
+        transfer::public_transfer(admin_cap, admin);
+        guild::create_guild(b"TestGuild".to_string(), &clock, scenario.ctx());
+        clock::destroy_for_testing(clock);
+    };
+    scenario.next_tx(admin);
+    {
+        let mut s = test_scenario::take_shared<Storage>(&scenario);
+        let cap = test_scenario::take_from_sender<storage::AdminCap>(&scenario);
+        let guild = test_scenario::take_shared<Guild>(&scenario);
+        let guild_id = object::id(&guild);
+        storage::set_storage_guild(&mut s, &cap, guild_id);
+        let guild_opt = storage::storage_guild_id(&s);
+        assert!(option::is_some(&guild_opt));
+        assert!(*option::borrow(&guild_opt) == guild_id);
+        test_scenario::return_to_sender(&scenario, cap);
+        test_scenario::return_shared(s);
+        test_scenario::return_shared(guild);
+    };
+    scenario.end();
+}
+
+#[test]
+fun test_remove_storage_guild() {
+    let admin = @0xAD;
+    let mut scenario = test_scenario::begin(admin);
+    {
+        let clock = clock::create_for_testing(scenario.ctx());
+        let admin_cap = storage::create_storage(1001, 10000, 100, &clock, scenario.ctx());
+        transfer::public_transfer(admin_cap, admin);
+        guild::create_guild(b"TestGuild".to_string(), &clock, scenario.ctx());
+        clock::destroy_for_testing(clock);
+    };
+    scenario.next_tx(admin);
+    {
+        let mut s = test_scenario::take_shared<Storage>(&scenario);
+        let cap = test_scenario::take_from_sender<storage::AdminCap>(&scenario);
+        let guild = test_scenario::take_shared<Guild>(&scenario);
+        storage::set_storage_guild(&mut s, &cap, object::id(&guild));
+        storage::remove_storage_guild(&mut s, &cap);
+        assert!(option::is_none(&storage::storage_guild_id(&s)));
+        test_scenario::return_to_sender(&scenario, cap);
+        test_scenario::return_shared(s);
+        test_scenario::return_shared(guild);
+    };
+    scenario.end();
+}
+
+#[test]
+fun test_withdraw_as_guild_member() {
+    let admin = @0xAD;
+    let member = @0xA2;
+    let mut scenario = test_scenario::begin(admin);
+    {
+        let clock = clock::create_for_testing(scenario.ctx());
+        let admin_cap = storage::create_storage(1001, 10000, 500, &clock, scenario.ctx()); // 5% fee
+        transfer::public_transfer(admin_cap, admin);
+        guild::create_guild(b"TestGuild".to_string(), &clock, scenario.ctx());
+        clock::destroy_for_testing(clock);
+    };
+    scenario.next_tx(admin);
+    {
+        let mut s = test_scenario::take_shared<Storage>(&scenario);
+        let cap = test_scenario::take_from_sender<storage::AdminCap>(&scenario);
+        let mut guild = test_scenario::take_shared<Guild>(&scenario);
+        let leader_cap = test_scenario::take_from_sender<GuildMemberCap>(&scenario);
+        storage::set_storage_guild(&mut s, &cap, object::id(&guild));
+        guild::add_member(&mut guild, &leader_cap, member, scenario.ctx());
+        test_scenario::return_to_sender(&scenario, cap);
+        test_scenario::return_to_sender(&scenario, leader_cap);
+        test_scenario::return_shared(s);
+        test_scenario::return_shared(guild);
+    };
+    scenario.next_tx(member);
+    {
+        let mut s = test_scenario::take_shared<Storage>(&scenario);
+        let mut clock = clock::create_for_testing(scenario.ctx());
+        clock::set_for_testing(&mut clock, 1000);
+        let receipt = storage::deposit(&mut s, b"ore", 500, 10000, &clock, scenario.ctx());
+        transfer::public_transfer(receipt, member);
+        test_scenario::return_shared(s);
+        clock::destroy_for_testing(clock);
+    };
+    // Member withdraws with guild discount (1 day later)
+    // Normal fee: 10000 * 500 / 10000 * 1 = 500
+    // Guild discount: 500 * (10000 - 3000) / 10000 = 350
+    scenario.next_tx(member);
+    {
+        let mut s = test_scenario::take_shared<Storage>(&scenario);
+        let receipt = test_scenario::take_from_sender<storage::DepositReceipt>(&scenario);
+        let guild = test_scenario::take_shared<Guild>(&scenario);
+        let guild_cap = test_scenario::take_from_sender<GuildMemberCap>(&scenario);
+        let mut clock = clock::create_for_testing(scenario.ctx());
+        clock::set_for_testing(&mut clock, 86_401_000);
+        let payment = sui::coin::mint_for_testing<sui::sui::SUI>(500, scenario.ctx());
+        let cargo = storage::withdraw_as_guild_member(
+            &mut s, receipt, payment, &guild, &guild_cap, &clock, scenario.ctx()
+        );
+        transfer::public_transfer(cargo, member);
+        test_scenario::return_to_sender(&scenario, guild_cap);
+        test_scenario::return_shared(s);
+        test_scenario::return_shared(guild);
+        clock::destroy_for_testing(clock);
     };
     scenario.end();
 }
