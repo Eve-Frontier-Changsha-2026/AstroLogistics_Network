@@ -198,8 +198,13 @@ public fun transfer_reporter_cap(cap: ReporterCap, recipient: address) {
     transfer::transfer(cap, recipient);
 }
 
-/// Increment missions_completed on a ReporterCap
-public fun increment_missions(reporter_cap: &mut ReporterCap) {
+/// Disabled — use increment_missions_gated instead (Fix RT-1).
+public fun increment_missions(_reporter_cap: &mut ReporterCap) {
+    abort E_DISABLED
+}
+
+/// Increment missions_completed on a ReporterCap (gated by OracleCap, Fix RT-1)
+public fun increment_missions_gated(_cap: &OracleCap, reporter_cap: &mut ReporterCap) {
     reporter_cap.missions_completed = reporter_cap.missions_completed + 1;
 }
 

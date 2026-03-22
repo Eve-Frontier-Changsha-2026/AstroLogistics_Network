@@ -6,7 +6,27 @@
       "Bash(npx:*)",
       "Bash(pnpm:*)",
       "Bash(ls:*)",
-      "WebFetch(domain:raw.githubusercontent.com)"
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(git check-ignore:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git worktree:*)",
+      "Bash(cd:*)",
+      "Bash(git rm:*)",
+      "Bash(git merge:*)",
+      "Bash(git checkout:*)",
+      "Bash(git push:*)",
+      "Bash(bash scripts/start-server.sh --project-dir /Users/ramonliao/Documents/Code/Project/Web3/Hackathon/2026_HoH_SUI_HackerHouse_Changsha/EVE_Frontier/build/projects/AstroLogistics_Network)",
+      "WebFetch(domain:docs.evefrontier.com)",
+      "Read(//private/tmp/**)",
+      "Bash(gh repo:*)",
+      "Read(//tmp/**)",
+      "Read(//tmp/builder-scaffold/**)",
+      "WebFetch(domain:eve-eyes.d0v.xyz)",
+      "Bash(curl -s 'https://eve-eyes.d0v.xyz/api/indexer/move-calls?page=1&pageSize=3&packageId=0xe8ad4a90d9ace6ff8788fa727d5c335f1f7adf19762476b027ee32ec28fce37f' -H 'x-api-key: eve_ak_BGY8YdWTaY_T6NZK3N7xiE2OOz8A_maRl3M_LxNJyO4')",
+      "Bash(python3 -m json.tool)",
+      "Bash(curl -s \"https://eve-eyes.d0v.xyz/api/indexer/move-calls?page=1&pageSize=3&packageId=0xe8ad4a90d9ace6ff8788fa727d5c335f1f7adf19762476b027ee32ec28fce37f\" -H 'x-api-key: eve_ak_BGY8YdWTaY_T6NZK3N7xiE2OOz8A_maRl3M_LxNJyO4')",
+      "Bash(curl -s 'https://eve-eyes.d0v.xyz/api/indexer/move-calls?page=1&pageSize=3&packageId=0x564d32c9ce29b9f75c1821311aded4b84ee6d912c39e434309b9803e19f5f25c' -H 'x-api-key: eve_ak_BGY8YdWTaY_T6NZK3N7xiE2OOz8A_maRl3M_LxNJyO4')"
     ]
   },
   "enabledPlugins": {

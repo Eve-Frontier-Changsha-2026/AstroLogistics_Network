@@ -49,3 +49,12 @@ public fun max_alpha(): u64 { 10_000 }
 
 /// Min courier contract reward (anti-farming)
 public fun min_contract_reward(): u64 { 1000 }
+
+/// Guild member fee discount: 3000 = 30% off storage fees
+public fun guild_fee_discount_bps(): u64 { 3000 }
+
+/// Max members per guild
+public fun max_guild_members(): u64 { 100 }
+
+/// Max guild name length in bytes (Red Team Fix: input fuzzing)
+public fun max_guild_name_length(): u64 { 128 }

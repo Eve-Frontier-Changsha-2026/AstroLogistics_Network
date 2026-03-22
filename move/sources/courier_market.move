@@ -6,7 +6,7 @@ use sui::sui::SUI;
 use sui::clock::{Self, Clock};
 use sui::event;
 use astrologistics::storage::{Self, Storage, DepositReceipt};
-use astrologistics::threat_oracle::{Self, OracleCap, ReporterCap};
+use astrologistics::threat_oracle::{Self, OracleCap};
 use astrologistics::constants;
 
 // ============ Error codes ============
@@ -496,7 +496,7 @@ public fun claim_timeout(
 
         let mut courier_dep = courier_deposit;
         let courier_val = balance::value(&courier_dep);
-        let bounty_amount = courier_val * constants::keeper_bounty_bps() / constants::bps_scale();
+        let bounty_amount = (((courier_val as u128) * (constants::keeper_bounty_bps() as u128) / (constants::bps_scale() as u128)) as u64);
         let bounty = if (bounty_amount > 0) {
             balance::split(&mut courier_dep, bounty_amount)
         } else {

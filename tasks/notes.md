@@ -165,9 +165,144 @@ constants (pure fns)
 | **integration** | - | - | 12 | 12 |
 | **Total** | **44** | **42** | **12** | **97** |
 
+## Frontend dApp Brainstorming (2026-03-23) — 進行中
+
+### 設計決策（已確認）
+
+**1. 目標使用者：所有玩家**
+- 每個玩家建立自己的 Storage（owned object）
+- Bounty Board 讓玩家廣播運送需求，其他玩家接單
+- 雙方質押代幣後才揭露 Storage 座標
+
+**2. Owned → Shared 轉換（不可逆）**
+- Storage 預設為 owned object（只有自己用）
+- 玩家決定開放 → 呼叫 `share_storage` → 永久轉 shared（SUI 限制，不可逆）
+- 符合 EVE Frontier 遊戲精神：開放是有意義的永久決策
+- Owner 獲得固定手續費分潤
+
+**3. Access Control 三層模型**
+| 角色 | Storage 存取 | 條件 |
+|------|-------------|------|
+| Owner | 完全控制 | 永遠 |
+| 公會成員 | 可使用（折扣手續費） | Storage 已轉 shared + guild_id 匹配 |
+| 非公會玩家 | 只能透過 Bounty 接單運送 | Storage 已轉 shared + 持有 CourierBadge |
+
+**4. 公會系統**
+- Storage 存 `guild_id: Option<ID>`，由 owner 用 AdminCap 更新
+- 換公會時 → 更新 guild_id → 舊成員立刻失去存取，新成員立刻獲得
+- GuildMemberCap 做本地驗證，Guild shared object 做 admin 管理
+- 公會權限管理不在 scope 內（簡化）
+
+**5. Bounty 獎勵差異**
+- 公會成員接單 → 獲得完整獎勵
+- 非公會接單 → 獎勵稍少，差額退回 Bounty 發起者
+- 激勵加入公會，同時不完全排斥外部玩家
+
+**6. Dark Forest + SUI Seal（完整整合）**
+- Storage 座標不存明文，用 SUI Seal 加密存鏈上
+- 兩層 Seal policy：
+  - 公會成員 → `policy: has_guild_member_cap(guild_id)` → 隨時可解密同公會 Storage 座標
+  - Bounty 接單者 → `policy: has_courier_badge(contract_id)` → 雙方質押完成後才能解密
+- 前端完整整合 Seal SDK（不用 placeholder）
+
+**7. 技術棧（EVE Frontier 官方）**
+- React + Vite + TypeScript
+- `@evefrontier/dapp-kit` (封裝 wallet、GraphQL、smart object hooks)
+- `@mysten/dapp-kit-react` + `@mysten/sui`
+- Radix UI（EVE scaffold 預設）
+- pnpm（scaffold 指定）
+- 參考 scaffold: `https://github.com/evefrontier/builder-scaffold`
+- 嵌入遊戲內瀏覽器：`?tenant=utopia&itemId=...`
+- 外部瀏覽器也可獨立開啟
+
+**8. 前端頁面（全部保留）**
+1. Dashboard — 我的 Storage 列表、Cargo 清單
+2. Star Map — 星系地圖視覺化（加密座標解密後顯示）
+3. Bounty Board — 運送需求列表，接單/開單
+4. Transport — 自運介面（跨星系傳送到自己的 Storage）
+5. Fuel Station — 買/賣 FUEL、價格曲線
+6. Guild — 建會、加入、公會 Storage 共享
+7. Threat Map — 星系危險指數視覺化
+
+### Data Layer 分析
+
+**eve-eyes indexer（EVE 世界資料）**
+- Endpoint: `https://eve-eyes.d0v.xyz`
+- Auth: `x-api-key: eve_ak_BGY8YdWTaY_T6NZK3N7xiE2OOz8A_maRl3M_LxNJyO4`
+- `GET /api/indexer/transaction-blocks` — 交易紀錄（filter: network, senderAddress, status, digest, checkpoint）
+- `GET /api/indexer/move-calls` — Move call 紀錄（filter: packageId, moduleName, functionName, senderAddress）
+- Pages 1-3 公開，page 4+ 需 auth
+- **重要**：只索引 EVE world contracts（`0xd12a70c...`），不索引我們的 AstroLogistics package
+
+**資料來源 mapping**
+| 資料需求 | 來源 |
+|---------|------|
+| 星系座標/constellation | eve-eyes indexer（EVE world data） |
+| 玩家角色/船隻 | eve-eyes + EVE dApp Kit |
+| 我們的合約即時狀態 | SUI RPC / GraphQL 直讀 shared objects |
+| 我們的合約歷史事件 | SUI Events API (`suix_queryEvents`) |
+| FUEL 價格歷史 | SUI Events → 前端聚合 |
+| Courier 信譽統計 | SUI Events → 按 address 聚合 settle/dispute |
+
+### 合約需要的修改（新 chat 處理）
+
+1. **Storage module**：
+   - 新增 `guild_id: Option<ID>` field（需 upgrade）
+   - 新增 `set_storage_guild(storage, cap, guild_id)` function
+   - Owned → Shared 轉換機制（`share_storage` function）
+   - 公會成員折扣手續費邏輯
+
+2. **Guild module（新 module）**：
+   - `Guild` shared object + `GuildMemberCap` owned object
+   - 建會、加入、退出、踢人
+
+3. **courier_market module**：
+   - `guild_discount_bps` field on CourierContract
+   - settle 時根據 courier 公會身份調整獎勵
+
+4. **SUI Seal 整合**：
+   - Storage 座標加密存儲
+   - Seal policy：公會成員 / CourierBadge 持有者可解密
+
+### Brainstorming 狀態
+- [x] 目標使用者
+- [x] Owned → Shared 轉換
+- [x] Access Control / Guild 系統
+- [x] Bounty 獎勵機制
+- [x] Dark Forest + Seal
+- [x] 技術棧
+- [x] 頁面範圍
+- [x] Data Layer 分析
+- [x] 設計 spec 撰寫 → 直接寫 implementation plan（brainstorming 已足夠詳細）
+- [x] Plan review (generic + move-code-quality + security-guard + red-team)
+- [x] Implementation plan — `docs/superpowers/plans/2026-03-23-plan4-contract-v3-guild-seal.md`
+- [ ] Plan 執行（開新 chat）
+
+---
+
+## Contract v3 Plan Review Summary (2026-03-23)
+
+### Plan Review 結果
+- **Generic reviewer**: 3 High + 3 Medium → 全部修復
+- **Move Code Quality**: 2 Critical + 11 improvements → 新 module 採用 Move 2024 style
+- **Security Guard**: capability usage audit PASS
+- **Red Team (8 rounds)**: 1 exploited + 3 suspicious + 5 defended
+
+### Red Team Accepted Risks
+- **RT-V3-1**: Guild revocation griefing — leader 可在 settle 前 remove courier，courier 失去 guild_bonus 但保留 base reward。Hackathon accept，mainnet 需 snapshot membership at accept time。
+- **RT-V3-2**: Stale GuildMemberCap 累積 — SUI owned object 無法遠端刪除。提供 `destroy_stale_cap` 讓用戶自行清理。
+
+### Move Code Quality 決策
+- 新 module (guild.move, seal_policy.move): 採用 EPascalCase error codes + `#[error]` + method syntax + `..` destructure
+- 舊 module 修改 (storage.move, courier_market.move): 保持現有 SCREAMING_SNAKE_CASE 風格一致性
+- 全面風格統一延至 v4
+
+---
+
 ## 文件位置
 - Spec: `docs/superpowers/specs/2026-03-20-astrologistics-design.md`
 - Plan 1: `docs/superpowers/plans/2026-03-21-plan1-foundation-layer.md`
 - Plan 2: `docs/superpowers/plans/2026-03-21-plan2-logistics-economy-layer.md`
 - Plan 3: `docs/superpowers/plans/2026-03-21-plan3-courier-market.md`
+- Plan 4 (v3): `docs/superpowers/plans/2026-03-23-plan4-contract-v3-guild-seal.md`
 - Constitution: `../../Constitution/EVE_Frontier_Project_Constitution.md`
