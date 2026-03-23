@@ -1,0 +1,18 @@
+{
+  "name": "astrologistics-scripts",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "init": "tsx src/init-testnet.ts",
+    "smoke": "tsx src/smoke-test.ts",
+    "smoke-v3": "tsx src/smoke-test-v3.ts"
+  },
+  "dependencies": {
+    "@mysten/sui": "^2.9.1"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  }
+}

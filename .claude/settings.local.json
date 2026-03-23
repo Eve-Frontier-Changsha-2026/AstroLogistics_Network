@@ -26,7 +26,12 @@
       "Bash(curl -s 'https://eve-eyes.d0v.xyz/api/indexer/move-calls?page=1&pageSize=3&packageId=0xe8ad4a90d9ace6ff8788fa727d5c335f1f7adf19762476b027ee32ec28fce37f' -H 'x-api-key: eve_ak_BGY8YdWTaY_T6NZK3N7xiE2OOz8A_maRl3M_LxNJyO4')",
       "Bash(python3 -m json.tool)",
       "Bash(curl -s \"https://eve-eyes.d0v.xyz/api/indexer/move-calls?page=1&pageSize=3&packageId=0xe8ad4a90d9ace6ff8788fa727d5c335f1f7adf19762476b027ee32ec28fce37f\" -H 'x-api-key: eve_ak_BGY8YdWTaY_T6NZK3N7xiE2OOz8A_maRl3M_LxNJyO4')",
-      "Bash(curl -s 'https://eve-eyes.d0v.xyz/api/indexer/move-calls?page=1&pageSize=3&packageId=0x564d32c9ce29b9f75c1821311aded4b84ee6d912c39e434309b9803e19f5f25c' -H 'x-api-key: eve_ak_BGY8YdWTaY_T6NZK3N7xiE2OOz8A_maRl3M_LxNJyO4')"
+      "Bash(curl -s 'https://eve-eyes.d0v.xyz/api/indexer/move-calls?page=1&pageSize=3&packageId=0x564d32c9ce29b9f75c1821311aded4b84ee6d912c39e434309b9803e19f5f25c' -H 'x-api-key: eve_ak_BGY8YdWTaY_T6NZK3N7xiE2OOz8A_maRl3M_LxNJyO4')",
+      "Bash(curl:*)",
+      "Bash(1 sui:*)",
+      "Bash(echo \"EXIT: $?\")",
+      "Bash(grep -E export.*from node_modules/@mysten/dapp-kit-react/dist/index.d.mts)",
+      "Bash(grep -E export.*ConnectButton node_modules/@mysten/dapp-kit-react/dist/ui.d.mts)"
     ]
   },
   "enabledPlugins": {

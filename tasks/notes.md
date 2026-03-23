@@ -146,24 +146,55 @@
 ```
 constants (pure fns)
 ├── fuel (FUEL coin, OTW)
-├── storage (Cargo, DepositReceipt, WithdrawAuth, AdminCap)
+├── guild (Guild, GuildMemberCap)              ← v3 new
+├── storage (Cargo, DepositReceipt, WithdrawAuth, AdminCap, +guild_id, +encrypted_coords)
 ├── threat_oracle (ThreatMap, OracleCap, ReporterCap)
 ├── transport (TransportOrder, uses storage + fuel)
 ├── fuel_station (FuelStation, AMM pricing, uses storage + fuel)
-└── courier_market (CourierContract, CourierBadge, uses storage + threat_oracle)
+├── courier_market (CourierContract, CourierBadge, +GuildBonusInfo, uses storage + threat_oracle + guild)
+└── seal_policy (seal_approve_guild_member, seal_approve_courier)  ← v3 new
 ```
 
-## 測試統計
+## 測試統計 (v3)
 | Module | Unit | Monkey | Integration | Total |
 |--------|------|--------|-------------|-------|
 | fuel | 2 | 0 | - | 2 |
-| storage | 9 | 10 | - | 19 |
+| storage | 12 | 12 | - | 24 |
 | threat_oracle | 6 | 7 | - | 13 |
 | transport | 7 | 6 | - | 13 |
 | fuel_station | 8 | 7 | - | 15 |
-| courier_market | 12 | 12 | - | 24 |
-| **integration** | - | - | 12 | 12 |
-| **Total** | **44** | **42** | **12** | **97** |
+| courier_market | 15 | 12 | - | 27 |
+| guild | 5 | 12 | - | 17 |
+| seal_policy | 7 | 0 | - | 7 |
+| **integration** | - | - | 18 | 18 |
+| **Total** | **62** | **56** | **18** | **138** |
+
+## Contract v3 Implementation (2026-03-23)
+
+### 新增模組
+- **guild.move**: Guild shared object + GuildMemberCap (key-only, non-transferable)
+  - EPascalCase error codes（新 module 風格）
+  - `test_fill_guild_to_capacity` test-only helper 用 `sui::address::from_u256` 動態生成地址
+- **seal_policy.move**: entry functions for Seal decrypt approval
+  - `seal::approve(id)` 是 TODO — Seal SDK dependency 待後續加入
+  - Access control 邏輯完整（guild member + courier badge）
+
+### 修改模組（全部 dynamic_field 擴展，upgrade safe）
+- **storage.move**: `GuildIdKey` (guild_id), `EncryptedCoordsKey` (encrypted coords), `withdraw_as_guild_member` (30% discount), `create_private_storage` + `share_storage`
+- **courier_market.move**: `GuildBonusKey`/`GuildBonusInfo`, `create_contract_with_guild_bonus`, `settle_as_guild_member`, dynamic_field cleanup on settle/resolve_dispute/claim_timeout/cancel_by_client
+- **constants.move**: `guild_fee_discount_bps(3000)`, `max_guild_members(100)`, `max_guild_name_length(128)`
+
+### 已知限制
+- SUI test framework 不支持跨 tx 把 owned object 轉為 shared — 用 `#[test_only]` helper workaround
+- `#[error]` attribute 與 `expected_failure(abort_code = ...)` 不相容 — guild.move 用 EPascalCase 但無 `#[error]`
+- Seal SDK 整合待完成（entry function signature 可能需調整 `id: vector<u8>` 參數）
+
+### Upgrade 注意事項
+- 所有修改在 compatible upgrade 限制內
+- courier_market 的 4 個刪除 UID 的函式都加了 `mut contract` + dynamic_field cleanup
+- 新增 3 個 getter: `badge_contract_id`, `status_accepted`, `status_pending_confirm`
+
+---
 
 ## Frontend dApp Brainstorming (2026-03-23) — 進行中
 
@@ -228,7 +259,7 @@ constants (pure fns)
 
 **eve-eyes indexer（EVE 世界資料）**
 - Endpoint: `https://eve-eyes.d0v.xyz`
-- Auth: `x-api-key: eve_ak_BGY8YdWTaY_T6NZK3N7xiE2OOz8A_maRl3M_LxNJyO4`
+- Auth: `x-api-key: <REDACTED>`
 - `GET /api/indexer/transaction-blocks` — 交易紀錄（filter: network, senderAddress, status, digest, checkpoint）
 - `GET /api/indexer/move-calls` — Move call 紀錄（filter: packageId, moduleName, functionName, senderAddress）
 - Pages 1-3 公開，page 4+ 需 auth
@@ -305,4 +336,36 @@ constants (pure fns)
 - Plan 2: `docs/superpowers/plans/2026-03-21-plan2-logistics-economy-layer.md`
 - Plan 3: `docs/superpowers/plans/2026-03-21-plan3-courier-market.md`
 - Plan 4 (v3): `docs/superpowers/plans/2026-03-23-plan4-contract-v3-guild-seal.md`
+- Plan 5 (frontend): `docs/superpowers/plans/2026-03-23-plan5-frontend-dapp.md`
 - Constitution: `../../Constitution/EVE_Frontier_Project_Constitution.md`
+
+---
+
+## Frontend Plan 5 Review Summary (2026-03-23)
+
+### Review Results
+- **3 HIGH** + **7 MEDIUM** + **7 LOW** → all fixed
+
+### Key Fixes
+| Issue | Problem | Fix |
+|-------|---------|-----|
+| H-1 | CourierContract is shared, `getOwnedObjects` won't find it | Changed to `queryEvents(ContractCreated)` |
+| H-2 | Status 3='Settled' wrong, statuses 5/6 don't exist | Fixed to `0=Open, 3=Delivered`, removed 5/6 |
+| H-3 | `tx.pure.string()` for `vector<u8>` | Added comment explaining BCS wire format compatibility |
+| M-3 | `cancelPenalty` field doesn't exist on-chain | Changed to `clientDeposit` (combined balance) |
+| M-4 | `Guild.members` is Table, not array | Changed to `memberTableId` + getDynamicFields |
+| L-3/4 | Missing PTB builders | Added `buildUpdateFeeRate` + `buildSetEncryptedCoords` |
+
+### Plan Structure
+- 19 tasks, ~90 steps
+- Tech stack: React 19 + Vite 8 + @mysten/dapp-kit-react ^2.0.1 + Tailwind 4.2
+- Reference scaffold: `../../Bounty_Escrow_Protocol/frontend/`
+- 8 pages: Dashboard, StorageDetail, BountyBoard, ContractDetail, FuelStation, Transport, Guild, ThreatMap
+
+### SUI Frontend Gotchas (for implementation)
+- **Type refs**: `ORIGINAL_PACKAGE_ID` for struct types, `PACKAGE_ID` for function calls
+- **Shared objects**: CourierContract, Guild, Storage (after share), FuelStation, ThreatMap — use `getObject` not `getOwnedObjects`
+- **Owned objects**: AdminCap, GuildMemberCap, CourierBadge, SupplierReceipt, TransportOrder, DepositReceipt — use `getOwnedObjects`
+- **Dynamic fields**: guild_id on Storage, GuildBonusInfo on CourierContract, OwnerFees on FuelStation, Guild.members Table — need `getDynamicFieldObject`/`getDynamicFields`
+- **Auto-transfer**: SUI runtime auto-transfers returned objects with `key+store` to tx sender
+- **Event discovery**: CourierContract IDs found via `queryEvents(ContractCreated)`, not object queries
