@@ -20,17 +20,14 @@ export default function GuildPage() {
   const [memberAddress, setMemberAddress] = useState('');
   const [removeAddress, setRemoveAddress] = useState('');
 
-  // Get first GuildMemberCap
-  const firstCap = memberCaps.data?.data[0];
-  const capContent = firstCap?.data?.content;
-  const capFields = capContent && 'fields' in capContent ? (capContent.fields as Record<string, unknown>) : null;
-  const guildId = capFields ? String(capFields['guild_id'] ?? '') : undefined;
-  const capId = firstCap?.data?.objectId;
+  const firstCap = (memberCaps.data?.objects ?? [])[0];
+  const capJson = firstCap?.json as Record<string, unknown> | null;
+  const guildId = capJson ? String(capJson['guild_id'] ?? '') : undefined;
+  const capId = firstCap?.objectId;
 
   const guildDetail = useGuildDetail(guildId);
-  const guildContent = guildDetail.data?.data?.content;
-  const guildFields = guildContent && 'fields' in guildContent ? (guildContent.fields as Record<string, unknown>) : null;
-  const isLeader = guildFields ? String(guildFields['leader'] ?? '') === account?.address : false;
+  const guildJson = guildDetail.data?.object?.json as Record<string, unknown> | null;
+  const isLeader = guildJson ? String(guildJson['leader'] ?? '') === account?.address : false;
 
   const handleCreateGuild = async () => {
     if (!guildName) return;
@@ -68,11 +65,11 @@ export default function GuildPage() {
         {memberCaps.isPending ? <LoadingSpinner /> : guildId ? (
           <>
             <Panel title="My Guild">
-              {guildDetail.isPending ? <LoadingSpinner /> : guildFields ? (
+              {guildDetail.isPending ? <LoadingSpinner /> : guildJson ? (
                 <div className="space-y-2 text-sm">
-                  <div><span className="text-gray-400">Name: </span><span className="text-white font-semibold">{String(guildFields['name'] ?? '')}</span></div>
-                  <div><span className="text-gray-400">Leader: </span><AddressDisplay address={String(guildFields['leader'] ?? '')} /></div>
-                  <div><span className="text-gray-400">Members: </span>{String(guildFields['member_count'] ?? 0)}</div>
+                  <div><span className="text-gray-400">Name: </span><span className="text-white font-semibold">{String(guildJson['name'] ?? '')}</span></div>
+                  <div><span className="text-gray-400">Leader: </span><AddressDisplay address={String(guildJson['leader'] ?? '')} /></div>
+                  <div><span className="text-gray-400">Members: </span>{String(guildJson['member_count'] ?? 0)}</div>
                   <div><span className="text-gray-400">Guild ID: </span><AddressDisplay address={guildId} /></div>
                 </div>
               ) : <p className="text-gray-400">Guild not found.</p>}

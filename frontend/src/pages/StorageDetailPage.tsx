@@ -28,25 +28,22 @@ export default function StorageDetailPage() {
 
   if (!storageId) return <p className="text-gray-400">No storage ID provided.</p>;
 
-  const content = storage.data?.data?.content;
-  const fields = content && 'fields' in content ? (content.fields as Record<string, unknown>) : null;
-  const ownerData = storage.data?.data?.owner;
-  const isShared = typeof ownerData === 'object' && ownerData !== null && 'Shared' in ownerData;
+  const obj = storage.data?.object;
+  const fields = obj?.json as Record<string, unknown> | null;
+  const isShared = obj?.owner.$kind === 'Shared';
 
   // Find matching AdminCap for this storage
-  const myAdminCap = adminCaps.data?.data.find((obj) => {
-    const c = obj.data?.content;
-    const f = c && 'fields' in c ? (c.fields as Record<string, unknown>) : null;
-    return String(f?.['storage_id'] ?? '') === storageId;
+  const myAdminCap = (adminCaps.data?.objects ?? []).find((cap) => {
+    const json = cap.json as Record<string, unknown> | null;
+    return String(json?.['storage_id'] ?? '') === storageId;
   });
-  const adminCapId = myAdminCap?.data?.objectId;
+  const adminCapId = myAdminCap?.objectId;
 
   // Filter receipts for this storage
-  const myReceipts = receipts.data?.data.filter((obj) => {
-    const c = obj.data?.content;
-    const f = c && 'fields' in c ? (c.fields as Record<string, unknown>) : null;
-    return String(f?.['storage_id'] ?? '') === storageId;
-  }) ?? [];
+  const myReceipts = (receipts.data?.objects ?? []).filter((r) => {
+    const json = r.json as Record<string, unknown> | null;
+    return String(json?.['storage_id'] ?? '') === storageId;
+  });
 
   const handleDeposit = async () => {
     const ptb = buildDeposit(storageId, itemType, Number(weight), Number(value));
@@ -104,7 +101,6 @@ export default function StorageDetailPage() {
               </div>
             </Panel>
 
-            {/* Deposit */}
             <Panel title="Deposit Cargo">
               <div className="flex gap-3 items-end">
                 <Input label="Item Type" value={itemType} onChange={(e) => setItemType(e.target.value)} className="flex-1" />
@@ -114,21 +110,18 @@ export default function StorageDetailPage() {
               </div>
             </Panel>
 
-            {/* Receipts */}
             <Panel title={`My Receipts (${myReceipts.length})`}>
               {myReceipts.length === 0 ? <p className="text-gray-500 text-sm">No receipts for this storage.</p> : (
                 <div className="space-y-2">
-                  {myReceipts.map((obj) => {
-                    const c = obj.data?.content;
-                    const f = c && 'fields' in c ? (c.fields as Record<string, unknown>) : null;
-                    const rId = obj.data?.objectId ?? '';
+                  {myReceipts.map((r) => {
+                    const json = r.json as Record<string, unknown> | null;
                     return (
-                      <div key={rId} className="flex items-center justify-between p-2 bg-gray-800/50 rounded-lg">
+                      <div key={r.objectId} className="flex items-center justify-between p-2 bg-gray-800/50 rounded-lg">
                         <div className="text-sm">
                           <span className="text-gray-400">Cargo: </span>
-                          <span className="font-mono text-cyan-400">{String(f?.['cargo_id'] ?? '').slice(0, 10)}...</span>
+                          <span className="font-mono text-cyan-400">{String(json?.['cargo_id'] ?? '').slice(0, 10)}...</span>
                         </div>
-                        <Button variant="secondary" onClick={() => handleWithdraw(rId)} loading={tx.loading}>
+                        <Button variant="secondary" onClick={() => handleWithdraw(r.objectId)} loading={tx.loading}>
                           Withdraw
                         </Button>
                       </div>
@@ -138,7 +131,6 @@ export default function StorageDetailPage() {
               )}
             </Panel>
 
-            {/* Admin actions */}
             {adminCapId && (
               <Panel title="Admin Actions">
                 <div className="space-y-4">

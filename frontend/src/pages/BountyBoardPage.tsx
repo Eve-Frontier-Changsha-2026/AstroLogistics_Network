@@ -7,11 +7,12 @@ import { Input } from '../components/ui/Input';
 import { LoadingSpinner } from '../components/ui/LoadingSpinner';
 import { TransactionToast } from '../components/ui/TransactionToast';
 import { StatusBadge } from '../components/ui/StatusBadge';
-import { useMyContracts, parseContractCreatedEvent } from '../hooks/useCourierContracts';
+import { useMyContracts } from '../hooks/useCourierContracts';
 import { useMyReceipts } from '../hooks/useStorageDetail';
 import { useTransactionExecutor } from '../hooks/useTransactionExecutor';
 import { buildCreateContract } from '../lib/ptb/courier';
-import { formatMist, timeRemaining } from '../lib/format';
+import { formatMist } from '../lib/format';
+import { CONTRACT_STATUS } from '../lib/constants';
 
 export default function BountyBoardPage() {
   const contracts = useMyContracts();
@@ -36,32 +37,33 @@ export default function BountyBoardPage() {
     await tx.execute(ptb);
   };
 
-  const events = contracts.data?.data ?? [];
+  const contractObjects = contracts.data?.objects ?? [];
+  const receiptObjects = receipts.data?.objects ?? [];
 
   return (
     <WalletGuard>
       <div className="space-y-6">
         <h1 className="text-2xl" style={{ fontFamily: 'var(--font-display)' }}>Bounty Board</h1>
 
-        {/* Active contracts from events */}
         <Panel title="My Contracts">
-          {contracts.isPending ? <LoadingSpinner /> : events.length === 0 ? (
+          {contracts.isPending ? <LoadingSpinner /> : contractObjects.length === 0 ? (
             <p className="text-gray-500 text-sm">No contracts found.</p>
           ) : (
             <div className="space-y-2">
-              {events.map((event, i) => {
-                const parsed = parseContractCreatedEvent(event as { parsedJson: Record<string, unknown> });
+              {contractObjects.map((obj) => {
+                const json = obj.json as Record<string, unknown> | null;
+                const status = Number(json?.['status'] ?? 0);
                 return (
-                  <Link key={i} to={`/bounty/${parsed.contractId}`}
+                  <Link key={obj.objectId} to={`/bounty/${obj.objectId}`}
                     className="block p-3 rounded-lg bg-gray-800/50 hover:bg-gray-700/50 transition-colors border border-gray-700">
                     <div className="flex items-center justify-between">
                       <div className="text-sm">
                         <span className="text-gray-400">Contract: </span>
-                        <span className="font-mono text-cyan-400">{parsed.contractId.slice(0, 10)}...</span>
+                        <span className="font-mono text-cyan-400">{obj.objectId.slice(0, 10)}...</span>
                       </div>
                       <div className="flex items-center gap-3">
-                        <span className="text-sm text-gray-400">{formatMist(parsed.reward)} SUI</span>
-                        <StatusBadge status={timeRemaining(parsed.deadline) === 'Expired' ? 'Expired' : 'Open'} />
+                        <span className="text-sm text-gray-400">{formatMist(Number(json?.['reward'] ?? 0))} SUI</span>
+                        <StatusBadge status={CONTRACT_STATUS[status] ?? 'Unknown'} />
                       </div>
                     </div>
                   </Link>
@@ -71,7 +73,6 @@ export default function BountyBoardPage() {
           )}
         </Panel>
 
-        {/* Create contract form */}
         <Panel title="Create Contract">
           <div className="space-y-3">
             <div className="grid grid-cols-2 gap-3">
@@ -86,9 +87,9 @@ export default function BountyBoardPage() {
                 className="w-full px-3 py-2 rounded-lg bg-gray-800 border border-gray-600 text-gray-100 text-sm"
               >
                 <option value="">Select receipt...</option>
-                {receipts.data?.data.map((obj) => (
-                  <option key={obj.data?.objectId} value={obj.data?.objectId ?? ''}>
-                    {obj.data?.objectId?.slice(0, 16)}...
+                {receiptObjects.map((obj) => (
+                  <option key={obj.objectId} value={obj.objectId}>
+                    {obj.objectId.slice(0, 16)}...
                   </option>
                 ))}
               </select>

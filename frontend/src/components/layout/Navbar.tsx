@@ -1,4 +1,5 @@
 import { ConnectButton } from '@mysten/dapp-kit-react/ui';
+import { useDAppKit } from '@mysten/dapp-kit-react';
 import { NavLink } from 'react-router-dom';
 
 const NAV_ITEMS = [
@@ -11,6 +12,8 @@ const NAV_ITEMS = [
 ] as const;
 
 export function Navbar() {
+  const dAppKit = useDAppKit();
+
   return (
     <nav className="flex items-center justify-between px-6 py-3 border-b"
          style={{ borderColor: 'var(--color-border)', background: 'var(--color-bg-secondary)' }}>
@@ -32,7 +35,7 @@ export function Navbar() {
           ))}
         </div>
       </div>
-      <ConnectButton />
+      <ConnectButton instance={dAppKit} />
     </nav>
   );
 }

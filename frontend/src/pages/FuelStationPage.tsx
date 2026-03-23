@@ -9,7 +9,7 @@ import { useFuelStationDetail } from '../hooks/useFuelStation';
 import { useFuelBalance } from '../hooks/useFuelBalance';
 import { useOwnedObjects } from '../hooks/useOwnedObjects';
 import { useTransactionExecutor } from '../hooks/useTransactionExecutor';
-import { buildBuyFuel, buildSupplyFuel, buildClaimRevenue, buildWithdrawSupplier } from '../lib/ptb/fuel-station';
+import { buildBuyFuel, buildClaimRevenue, buildWithdrawSupplier } from '../lib/ptb/fuel-station';
 import { TESTNET_OBJECTS } from '../config/objects';
 import { TYPE } from '../config/contracts';
 import { formatFuel, formatBps } from '../lib/format';
@@ -30,16 +30,10 @@ export default function FuelStationPage() {
   const [maxPrice, setMaxPrice] = useState('200');
   const [paymentAmount, setPaymentAmount] = useState('1000000000');
 
-  const content = station.data?.data?.content;
-  const fields = content && 'fields' in content ? (content.fields as Record<string, unknown>) : null;
+  const fields = station.data?.object?.json as Record<string, unknown> | null;
 
   const handleBuy = async () => {
     const ptb = buildBuyFuel(selectedStation, Number(buyAmount), Number(maxPrice), Number(paymentAmount));
-    await tx.execute(ptb);
-  };
-
-  const handleSupply = async (fuelCoinId: string) => {
-    const ptb = buildSupplyFuel(selectedStation, fuelCoinId);
     await tx.execute(ptb);
   };
 
@@ -53,12 +47,13 @@ export default function FuelStationPage() {
     await tx.execute(ptb);
   };
 
+  const receiptObjects = supplierReceipts.data?.objects ?? [];
+
   return (
     <WalletGuard>
       <div className="space-y-6">
         <h1 className="text-2xl" style={{ fontFamily: 'var(--font-display)' }}>Fuel Station</h1>
 
-        {/* Station selector */}
         <div className="flex gap-2">
           {STATIONS.map((s) => (
             <button
@@ -75,7 +70,6 @@ export default function FuelStationPage() {
           ))}
         </div>
 
-        {/* Station stats */}
         {station.isPending ? <LoadingSpinner /> : fields ? (
           <Panel title="Station Stats">
             <div className="grid grid-cols-2 gap-3 text-sm">
@@ -87,14 +81,12 @@ export default function FuelStationPage() {
           </Panel>
         ) : null}
 
-        {/* My FUEL balance */}
         <Panel title="My FUEL Balance">
           <p className="text-2xl font-bold text-cyan-400">
-            {fuelBalance.data ? formatFuel(fuelBalance.data.totalBalance) : '—'}
+            {fuelBalance.data ? formatFuel(Number(fuelBalance.data.balance.balance)) : '—'}
           </p>
         </Panel>
 
-        {/* Buy FUEL */}
         <Panel title="Buy FUEL">
           <div className="space-y-3">
             <div className="grid grid-cols-3 gap-3">
@@ -106,25 +98,21 @@ export default function FuelStationPage() {
           </div>
         </Panel>
 
-        {/* Supplier receipts */}
         <Panel title="My Supplier Receipts">
           {supplierReceipts.isPending ? <LoadingSpinner /> : (
             <div className="space-y-2">
-              {(supplierReceipts.data?.data ?? []).length === 0 ? (
+              {receiptObjects.length === 0 ? (
                 <p className="text-gray-500 text-sm">No supplier receipts.</p>
               ) : (
-                supplierReceipts.data?.data.map((obj) => {
-                  const rId = obj.data?.objectId ?? '';
-                  return (
-                    <div key={rId} className="flex items-center justify-between p-2 bg-gray-800/50 rounded-lg">
-                      <span className="font-mono text-sm text-cyan-400">{rId.slice(0, 16)}...</span>
-                      <div className="flex gap-2">
-                        <Button variant="secondary" onClick={() => handleClaimRevenue(rId)} loading={tx.loading}>Claim</Button>
-                        <Button variant="danger" onClick={() => handleWithdraw(rId)} loading={tx.loading}>Withdraw</Button>
-                      </div>
+                receiptObjects.map((obj) => (
+                  <div key={obj.objectId} className="flex items-center justify-between p-2 bg-gray-800/50 rounded-lg">
+                    <span className="font-mono text-sm text-cyan-400">{obj.objectId.slice(0, 16)}...</span>
+                    <div className="flex gap-2">
+                      <Button variant="secondary" onClick={() => handleClaimRevenue(obj.objectId)} loading={tx.loading}>Claim</Button>
+                      <Button variant="danger" onClick={() => handleWithdraw(obj.objectId)} loading={tx.loading}>Withdraw</Button>
                     </div>
-                  );
-                })
+                  </div>
+                ))
               )}
             </div>
           )}

@@ -22,6 +22,9 @@ export default function DashboardPage() {
     await tx.execute(ptb);
   };
 
+  const caps = adminCaps.data?.objects ?? [];
+  const contractCount = contracts.data?.objects?.length ?? 0;
+
   return (
     <WalletGuard>
       <div className="space-y-6">
@@ -30,33 +33,32 @@ export default function DashboardPage() {
         <div className="grid grid-cols-3 gap-4">
           <Panel title="FUEL Balance">
             <p className="text-2xl font-bold text-cyan-400">
-              {fuelBalance.data ? formatFuel(fuelBalance.data.totalBalance) : '—'}
+              {fuelBalance.data ? formatFuel(Number(fuelBalance.data.balance.balance)) : '—'}
             </p>
           </Panel>
           <Panel title="My Storages">
-            <p className="text-2xl font-bold">{adminCaps.data?.data.length ?? 0}</p>
+            <p className="text-2xl font-bold">{caps.length}</p>
           </Panel>
           <Panel title="My Contracts">
-            <p className="text-2xl font-bold">{contracts.data?.data?.length ?? 0}</p>
+            <p className="text-2xl font-bold">{contractCount}</p>
           </Panel>
         </div>
 
         <Panel title="My Storages">
           {adminCaps.isPending ? <LoadingSpinner /> : (
             <div className="space-y-3">
-              {adminCaps.data?.data.map((obj) => {
-                const content = obj.data?.content;
-                const fields = content && 'fields' in content ? (content.fields as Record<string, unknown>) : null;
-                const storageId = String(fields?.['storage_id'] ?? '');
+              {caps.map((obj) => {
+                const json = obj.json as Record<string, unknown> | null;
+                const storageId = String(json?.['storage_id'] ?? '');
                 return (
-                  <Link key={obj.data?.objectId} to={`/storage/${storageId}`}
+                  <Link key={obj.objectId} to={`/storage/${storageId}`}
                     className="block p-3 rounded-lg bg-gray-800/50 hover:bg-gray-700/50 transition-colors border border-gray-700">
                     <span className="text-sm text-gray-400">Storage: </span>
                     <span className="text-cyan-400 font-mono text-sm">{storageId.slice(0, 10)}...</span>
                   </Link>
                 );
               })}
-              {adminCaps.data?.data.length === 0 && (
+              {caps.length === 0 && (
                 <p className="text-gray-500 text-sm">No storages yet.</p>
               )}
             </div>

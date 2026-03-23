@@ -3,4 +3,6 @@ tasks/lessons.md
 .worktrees
 .env*
 scripts/node_modules/
+frontend/node_modules/
+frontend/dist/
 .claude/settings.local.json

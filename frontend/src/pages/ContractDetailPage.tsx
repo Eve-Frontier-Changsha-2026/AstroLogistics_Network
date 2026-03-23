@@ -26,8 +26,7 @@ export default function ContractDetailPage() {
 
   if (!contractId) return <p className="text-gray-400">No contract ID.</p>;
 
-  const content = contract.data?.data?.content;
-  const fields = content && 'fields' in content ? (content.fields as Record<string, unknown>) : null;
+  const fields = contract.data?.object?.json as Record<string, unknown> | null;
 
   const status = Number(fields?.['status'] ?? 0);
   const statusLabel = CONTRACT_STATUS[status] ?? 'Unknown';
@@ -38,12 +37,11 @@ export default function ContractDetailPage() {
   const deadlineMs = Number(fields?.['deadline'] ?? 0);
 
   // Find badge for this contract
-  const myBadge = badges.data?.data.find((obj) => {
-    const c = obj.data?.content;
-    const f = c && 'fields' in c ? (c.fields as Record<string, unknown>) : null;
-    return String(f?.['contract_id'] ?? '') === contractId;
+  const myBadge = (badges.data?.objects ?? []).find((obj) => {
+    const json = obj.json as Record<string, unknown> | null;
+    return String(json?.['contract_id'] ?? '') === contractId;
   });
-  const badgeId = myBadge?.data?.objectId;
+  const badgeId = myBadge?.objectId;
 
   const handleAccept = async () => {
     const ptb = buildAcceptContract(contractId, Number(depositAmount));
@@ -101,7 +99,6 @@ export default function ContractDetailPage() {
 
             <Panel title="Actions">
               <div className="space-y-3">
-                {/* Open — client can cancel, courier can accept */}
                 {status === 0 && isClient && (
                   <Button variant="danger" onClick={handleCancel} loading={tx.loading}>Cancel Contract</Button>
                 )}
@@ -111,21 +108,15 @@ export default function ContractDetailPage() {
                     <Button onClick={handleAccept} loading={tx.loading}>Accept Contract</Button>
                   </div>
                 )}
-
-                {/* Accepted — courier can pickup */}
                 {status === 1 && isCourier && badgeId && (
                   <Button onClick={handlePickup} loading={tx.loading}>Pickup & Deliver</Button>
                 )}
-
-                {/* PendingConfirm — client can confirm or dispute */}
                 {status === 2 && isClient && (
                   <div className="flex gap-3">
                     <Button onClick={handleConfirm} loading={tx.loading}>Confirm Delivery</Button>
                     <Button variant="danger" onClick={handleDispute} loading={tx.loading}>Raise Dispute</Button>
                   </div>
                 )}
-
-                {/* Timeout — anyone can claim if deadline passed */}
                 {deadlineMs > 0 && Date.now() > deadlineMs && (
                   <Button variant="secondary" onClick={handleTimeout} loading={tx.loading}>Claim Timeout</Button>
                 )}

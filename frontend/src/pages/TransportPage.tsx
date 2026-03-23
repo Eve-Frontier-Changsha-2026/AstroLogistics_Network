@@ -39,12 +39,14 @@ export default function TransportPage() {
     await tx.execute(ptb);
   };
 
+  const orderObjects = orders.data?.objects ?? [];
+  const receiptObjects = receipts.data?.objects ?? [];
+
   return (
     <WalletGuard>
       <div className="space-y-6">
         <h1 className="text-2xl" style={{ fontFamily: 'var(--font-display)' }}>Transport</h1>
 
-        {/* Create order */}
         <Panel title="Create Transport Order">
           <div className="space-y-3">
             <div className="grid grid-cols-2 gap-3">
@@ -59,9 +61,9 @@ export default function TransportPage() {
                 className="w-full px-3 py-2 rounded-lg bg-gray-800 border border-gray-600 text-gray-100 text-sm"
               >
                 <option value="">Select receipt...</option>
-                {receipts.data?.data.map((obj) => (
-                  <option key={obj.data?.objectId} value={obj.data?.objectId ?? ''}>
-                    {obj.data?.objectId?.slice(0, 16)}...
+                {receiptObjects.map((obj) => (
+                  <option key={obj.objectId} value={obj.objectId}>
+                    {obj.objectId.slice(0, 16)}...
                   </option>
                 ))}
               </select>
@@ -85,36 +87,33 @@ export default function TransportPage() {
           </div>
         </Panel>
 
-        {/* My orders */}
         <Panel title="My Transport Orders">
           {orders.isPending ? <LoadingSpinner /> : (
             <div className="space-y-2">
-              {(orders.data?.data ?? []).length === 0 ? (
+              {orderObjects.length === 0 ? (
                 <p className="text-gray-500 text-sm">No transport orders.</p>
               ) : (
-                orders.data?.data.map((obj) => {
-                  const c = obj.data?.content;
-                  const f = c && 'fields' in c ? (c.fields as Record<string, unknown>) : null;
-                  if (!f) return null;
-                  const orderId = obj.data?.objectId ?? '';
-                  const orderStatus = Number(f['status'] ?? 0);
-                  const from = String(f['from_storage'] ?? '');
-                  const to = String(f['to_storage'] ?? '');
+                orderObjects.map((obj) => {
+                  const json = obj.json as Record<string, unknown> | null;
+                  if (!json) return null;
+                  const orderStatus = Number(json['status'] ?? 0);
+                  const from = String(json['from_storage'] ?? '');
+                  const to = String(json['to_storage'] ?? '');
                   return (
-                    <div key={orderId} className="p-3 bg-gray-800/50 rounded-lg border border-gray-700">
+                    <div key={obj.objectId} className="p-3 bg-gray-800/50 rounded-lg border border-gray-700">
                       <div className="flex items-center justify-between mb-2">
-                        <span className="font-mono text-sm text-cyan-400">{orderId.slice(0, 16)}...</span>
+                        <span className="font-mono text-sm text-cyan-400">{obj.objectId.slice(0, 16)}...</span>
                         <StatusBadge status={TRANSPORT_STATUS[orderStatus] ?? 'Unknown'} />
                       </div>
                       <div className="text-xs text-gray-400 mb-2">
-                        {TRANSPORT_TIER[Number(f['tier'] ?? 0)]} tier
+                        {TRANSPORT_TIER[Number(json['tier'] ?? 0)]} tier
                       </div>
                       <div className="flex gap-2">
                         {orderStatus === 1 && (
-                          <Button variant="primary" onClick={() => handleComplete(orderId, from, to)} loading={tx.loading}>Complete</Button>
+                          <Button variant="primary" onClick={() => handleComplete(obj.objectId, from, to)} loading={tx.loading}>Complete</Button>
                         )}
                         {orderStatus === 0 && (
-                          <Button variant="danger" onClick={() => handleCancel(orderId)} loading={tx.loading}>Cancel</Button>
+                          <Button variant="danger" onClick={() => handleCancel(obj.objectId)} loading={tx.loading}>Cancel</Button>
                         )}
                       </div>
                     </div>
