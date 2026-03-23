@@ -5,12 +5,14 @@ use sui::test_scenario;
 use sui::clock;
 use sui::coin;
 use sui::sui::SUI;
-use astrologistics::storage::{Self, Storage, DepositReceipt};
+use astrologistics::storage::{Self, Storage, AdminCap, DepositReceipt};
 use astrologistics::fuel::{Self, FUEL, FuelTreasuryCap};
 use astrologistics::fuel_station::{Self, FuelStation, SupplierReceipt};
 use astrologistics::transport::{Self, TransportOrder};
 use astrologistics::threat_oracle::{Self, ThreatMap, OracleCap, ReporterCap};
 use astrologistics::courier_market::{Self, CourierContract, CourierBadge};
+use astrologistics::guild::{Self, Guild, GuildMemberCap};
+use astrologistics::seal_policy;
 
 // ============ Helpers ============
 
@@ -19,6 +21,7 @@ const USER: address = @0xA1;
 const COURIER: address = @0xA2;
 const SUPPLIER: address = @0xA3;
 const KEEPER: address = @0xA4;
+const LEADER: address = @0xA5;
 
 /// Full world setup: 2 storages (sys 1001, 2002) + fuel treasury + threat oracle + fuel station
 fun setup_full_world(): test_scenario::Scenario {
@@ -1126,6 +1129,556 @@ fun test_courier_cancel_and_reuse_receipt() {
         let contract = test_scenario::take_shared<CourierContract>(&scenario);
         assert!(courier_market::contract_reward(&contract) == 3000);
         test_scenario::return_shared(contract);
+    };
+
+    scenario.end();
+}
+
+// ============================================================
+// Test 13: Full E2E — Guild courier with guild bonus settlement
+// Leader creates guild → courier joins → client creates guild-bonus contract →
+// courier delivers → settle_as_guild_member → gets reward + guild_bonus
+// ============================================================
+#[test]
+fun test_integration_guild_courier_full_flow() {
+    let mut scenario = setup_full_world();
+
+    // 1. Leader creates guild
+    scenario.next_tx(LEADER);
+    {
+        let clock = clock::create_for_testing(scenario.ctx());
+        guild::create_guild(std::string::utf8(b"StarRunners"), &clock, scenario.ctx());
+        clock::destroy_for_testing(clock);
+    };
+
+    // 2. Leader adds COURIER to guild
+    scenario.next_tx(LEADER);
+    {
+        let mut g = test_scenario::take_shared<Guild>(&scenario);
+        let leader_cap = test_scenario::take_from_sender<GuildMemberCap>(&scenario);
+        guild::add_member(&mut g, &leader_cap, COURIER, scenario.ctx());
+        test_scenario::return_to_address(LEADER, leader_cap);
+        test_scenario::return_shared(g);
+    };
+
+    // 3. Set guild on from_storage (system 1001)
+    scenario.next_tx(ADMIN);
+    {
+        let g = test_scenario::take_shared<Guild>(&scenario);
+        let guild_id = object::id(&g);
+        let cap1 = test_scenario::take_from_sender<AdminCap>(&scenario);
+        let cap2 = test_scenario::take_from_sender<AdminCap>(&scenario);
+        let (mut from, to) = take_storages_ordered(&scenario);
+        let (from_cap, other_cap) = if (storage::storage_id_from_cap(&cap1) == object::id(&from)) {
+            (cap1, cap2)
+        } else {
+            (cap2, cap1)
+        };
+        storage::set_storage_guild(&mut from, &from_cap, guild_id);
+        transfer::public_transfer(from_cap, ADMIN);
+        transfer::public_transfer(other_cap, ADMIN);
+        test_scenario::return_shared(from);
+        test_scenario::return_shared(to);
+        test_scenario::return_shared(g);
+    };
+
+    // 4. Client deposits cargo into storage 1001
+    scenario.next_tx(USER);
+    {
+        let (mut from, to) = take_storages_ordered(&scenario);
+        let clock = clock::create_for_testing(scenario.ctx());
+        let receipt = storage::deposit(&mut from, b"guild_cargo", 200, 10000, &clock, scenario.ctx());
+        transfer::public_transfer(receipt, USER);
+        test_scenario::return_shared(from);
+        test_scenario::return_shared(to);
+        clock::destroy_for_testing(clock);
+    };
+
+    // 5. Client creates contract with guild bonus
+    scenario.next_tx(USER);
+    {
+        let g = test_scenario::take_shared<Guild>(&scenario);
+        let guild_id = object::id(&g);
+        let (from, to) = take_storages_ordered(&scenario);
+        let receipt = test_scenario::take_from_sender<DepositReceipt>(&scenario);
+        let mut clock = clock::create_for_testing(scenario.ctx());
+        clock::set_for_testing(&mut clock, 10000);
+        let reward = coin::mint_for_testing<SUI>(5000, scenario.ctx());
+        let penalty = coin::mint_for_testing<SUI>(2000, scenario.ctx());
+        let guild_bonus = coin::mint_for_testing<SUI>(3000, scenario.ctx());
+
+        courier_market::create_contract_with_guild_bonus(
+            &from, &to, receipt,
+            reward, penalty, guild_bonus,
+            10000, vector[1001, 2002],
+            7_200_000, guild_id,
+            &clock, scenario.ctx(),
+        );
+
+        test_scenario::return_shared(from);
+        test_scenario::return_shared(to);
+        test_scenario::return_shared(g);
+        clock::destroy_for_testing(clock);
+    };
+
+    // 6. Courier accepts
+    scenario.next_tx(COURIER);
+    {
+        let mut contract = test_scenario::take_shared<CourierContract>(&scenario);
+        let mut clock = clock::create_for_testing(scenario.ctx());
+        clock::set_for_testing(&mut clock, 20000);
+        let deposit = coin::mint_for_testing<SUI>(10000, scenario.ctx());
+        let badge = courier_market::accept_contract(&mut contract, deposit, &clock, scenario.ctx());
+        transfer::public_transfer(badge, COURIER);
+        test_scenario::return_shared(contract);
+        clock::destroy_for_testing(clock);
+    };
+
+    // 7. Courier picks up and delivers
+    scenario.next_tx(COURIER);
+    {
+        let mut contract = test_scenario::take_shared<CourierContract>(&scenario);
+        let badge = test_scenario::take_from_sender<CourierBadge>(&scenario);
+        let (mut from, mut to) = take_storages_ordered(&scenario);
+        let mut clock = clock::create_for_testing(scenario.ctx());
+        clock::set_for_testing(&mut clock, 30000);
+
+        courier_market::pickup_and_deliver(
+            &mut contract, &badge, &mut from, &mut to, &clock, scenario.ctx(),
+        );
+
+        assert!(courier_market::contract_status(&contract) == 2); // PendingConfirm
+        transfer::public_transfer(badge, COURIER);
+        test_scenario::return_shared(contract);
+        test_scenario::return_shared(from);
+        test_scenario::return_shared(to);
+        clock::destroy_for_testing(clock);
+    };
+
+    // 8. Client confirms
+    scenario.next_tx(USER);
+    {
+        let mut contract = test_scenario::take_shared<CourierContract>(&scenario);
+        courier_market::confirm_delivery(&mut contract, scenario.ctx());
+        assert!(courier_market::contract_status(&contract) == 3); // Delivered
+        test_scenario::return_shared(contract);
+    };
+
+    // 9. Courier settles as guild member → gets reward (5000) + guild_bonus (3000) = 8000
+    scenario.next_tx(COURIER);
+    {
+        let contract = test_scenario::take_shared<CourierContract>(&scenario);
+        let badge = test_scenario::take_from_sender<CourierBadge>(&scenario);
+        let oracle_cap = test_scenario::take_from_address<OracleCap>(&scenario, ADMIN);
+        let g = test_scenario::take_shared<Guild>(&scenario);
+        let guild_cap = test_scenario::take_from_sender<GuildMemberCap>(&scenario);
+
+        courier_market::settle_as_guild_member(
+            contract, badge, &oracle_cap, &g, &guild_cap, scenario.ctx(),
+        );
+
+        test_scenario::return_to_address(COURIER, guild_cap);
+        test_scenario::return_to_address(ADMIN, oracle_cap);
+        test_scenario::return_shared(g);
+    };
+
+    // 10. Verify courier got ReporterCap
+    scenario.next_tx(COURIER);
+    {
+        let reporter_cap = test_scenario::take_from_sender<ReporterCap>(&scenario);
+        threat_oracle::transfer_reporter_cap(reporter_cap, COURIER);
+    };
+
+    scenario.end();
+}
+
+// ============================================================
+// Test 14: Outsider courier on guild contract — gets reward only, no guild_bonus
+// ============================================================
+#[test]
+fun test_integration_outsider_courier_on_guild_contract() {
+    let mut scenario = setup_full_world();
+
+    // 1. Leader creates guild
+    scenario.next_tx(LEADER);
+    {
+        let clock = clock::create_for_testing(scenario.ctx());
+        guild::create_guild(std::string::utf8(b"GuildX"), &clock, scenario.ctx());
+        clock::destroy_for_testing(clock);
+    };
+
+    // 2. Client deposits cargo
+    scenario.next_tx(USER);
+    {
+        let (mut from, to) = take_storages_ordered(&scenario);
+        let clock = clock::create_for_testing(scenario.ctx());
+        let receipt = storage::deposit(&mut from, b"outsider_cargo", 150, 8000, &clock, scenario.ctx());
+        transfer::public_transfer(receipt, USER);
+        test_scenario::return_shared(from);
+        test_scenario::return_shared(to);
+        clock::destroy_for_testing(clock);
+    };
+
+    // 3. Client creates contract with guild bonus
+    scenario.next_tx(USER);
+    {
+        let g = test_scenario::take_shared<Guild>(&scenario);
+        let guild_id = object::id(&g);
+        let (from, to) = take_storages_ordered(&scenario);
+        let receipt = test_scenario::take_from_sender<DepositReceipt>(&scenario);
+        let mut clock = clock::create_for_testing(scenario.ctx());
+        clock::set_for_testing(&mut clock, 10000);
+        let reward = coin::mint_for_testing<SUI>(4000, scenario.ctx());
+        let penalty = coin::mint_for_testing<SUI>(1500, scenario.ctx());
+        let guild_bonus = coin::mint_for_testing<SUI>(2000, scenario.ctx());
+
+        courier_market::create_contract_with_guild_bonus(
+            &from, &to, receipt,
+            reward, penalty, guild_bonus,
+            8000, vector[1001, 2002],
+            7_200_000, guild_id,
+            &clock, scenario.ctx(),
+        );
+
+        test_scenario::return_shared(from);
+        test_scenario::return_shared(to);
+        test_scenario::return_shared(g);
+        clock::destroy_for_testing(clock);
+    };
+
+    // 4. Courier (NOT in guild) accepts
+    scenario.next_tx(COURIER);
+    {
+        let mut contract = test_scenario::take_shared<CourierContract>(&scenario);
+        let mut clock = clock::create_for_testing(scenario.ctx());
+        clock::set_for_testing(&mut clock, 20000);
+        let deposit = coin::mint_for_testing<SUI>(8000, scenario.ctx());
+        let badge = courier_market::accept_contract(&mut contract, deposit, &clock, scenario.ctx());
+        transfer::public_transfer(badge, COURIER);
+        test_scenario::return_shared(contract);
+        clock::destroy_for_testing(clock);
+    };
+
+    // 5. Courier delivers
+    scenario.next_tx(COURIER);
+    {
+        let mut contract = test_scenario::take_shared<CourierContract>(&scenario);
+        let badge = test_scenario::take_from_sender<CourierBadge>(&scenario);
+        let (mut from, mut to) = take_storages_ordered(&scenario);
+        let mut clock = clock::create_for_testing(scenario.ctx());
+        clock::set_for_testing(&mut clock, 30000);
+        courier_market::pickup_and_deliver(&mut contract, &badge, &mut from, &mut to, &clock, scenario.ctx());
+        transfer::public_transfer(badge, COURIER);
+        test_scenario::return_shared(contract);
+        test_scenario::return_shared(from);
+        test_scenario::return_shared(to);
+        clock::destroy_for_testing(clock);
+    };
+
+    // 6. Client confirms
+    scenario.next_tx(USER);
+    {
+        let mut contract = test_scenario::take_shared<CourierContract>(&scenario);
+        courier_market::confirm_delivery(&mut contract, scenario.ctx());
+        test_scenario::return_shared(contract);
+    };
+
+    // 7. Courier uses plain settle() (not guild member) → gets reward only
+    //    guild_bonus stays in client_deposit → returned to client with cancel_penalty
+    scenario.next_tx(COURIER);
+    {
+        let contract = test_scenario::take_shared<CourierContract>(&scenario);
+        let badge = test_scenario::take_from_sender<CourierBadge>(&scenario);
+        let oracle_cap = test_scenario::take_from_address<OracleCap>(&scenario, ADMIN);
+        courier_market::settle(contract, badge, &oracle_cap, scenario.ctx());
+        test_scenario::return_to_address(ADMIN, oracle_cap);
+    };
+
+    scenario.end();
+}
+
+// ============================================================
+// Test 15: Private → shared storage lifecycle
+// ============================================================
+#[test]
+fun test_integration_private_to_shared_storage() {
+    let mut scenario = test_scenario::begin(ADMIN);
+
+    // 1. Owner creates private storage and shares it (test helper)
+    {
+        let clock = clock::create_for_testing(scenario.ctx());
+        let admin_cap = storage::create_private_storage_and_share(
+            5005, 10000, 300, &clock, scenario.ctx(),
+        );
+        transfer::public_transfer(admin_cap, ADMIN);
+        clock::destroy_for_testing(clock);
+    };
+
+    // 2. Owner deposits cargo
+    scenario.next_tx(ADMIN);
+    {
+        let mut s = test_scenario::take_shared<Storage>(&scenario);
+        let clock = clock::create_for_testing(scenario.ctx());
+        let receipt = storage::deposit(&mut s, b"private_cargo", 500, 20000, &clock, scenario.ctx());
+        assert!(storage::current_load(&s) == 500);
+        transfer::public_transfer(receipt, ADMIN);
+        test_scenario::return_shared(s);
+        clock::destroy_for_testing(clock);
+    };
+
+    // 3. Another user deposits into the now-shared storage
+    scenario.next_tx(USER);
+    {
+        let mut s = test_scenario::take_shared<Storage>(&scenario);
+        let clock = clock::create_for_testing(scenario.ctx());
+        let receipt = storage::deposit(&mut s, b"user_cargo", 300, 5000, &clock, scenario.ctx());
+        assert!(storage::current_load(&s) == 800); // 500 + 300
+        transfer::public_transfer(receipt, USER);
+        test_scenario::return_shared(s);
+        clock::destroy_for_testing(clock);
+    };
+
+    scenario.end();
+}
+
+// ============================================================
+// Test 16: Guild member withdraw fee discount (30% off)
+// ============================================================
+#[test]
+fun test_integration_guild_withdraw_discount() {
+    let mut scenario = test_scenario::begin(ADMIN);
+
+    // 1. Create storage + guild
+    {
+        let clock = clock::create_for_testing(scenario.ctx());
+        let admin_cap = storage::create_storage(7007, 50000, 500, &clock, scenario.ctx());
+        transfer::public_transfer(admin_cap, ADMIN);
+        clock::destroy_for_testing(clock);
+    };
+
+    scenario.next_tx(LEADER);
+    {
+        let clock = clock::create_for_testing(scenario.ctx());
+        guild::create_guild(std::string::utf8(b"FeeGuild"), &clock, scenario.ctx());
+        clock::destroy_for_testing(clock);
+    };
+
+    // 2. Leader adds USER to guild
+    scenario.next_tx(LEADER);
+    {
+        let mut g = test_scenario::take_shared<Guild>(&scenario);
+        let leader_cap = test_scenario::take_from_sender<GuildMemberCap>(&scenario);
+        guild::add_member(&mut g, &leader_cap, USER, scenario.ctx());
+        test_scenario::return_to_address(LEADER, leader_cap);
+        test_scenario::return_shared(g);
+    };
+
+    // 3. Admin sets guild on storage
+    scenario.next_tx(ADMIN);
+    {
+        let g = test_scenario::take_shared<Guild>(&scenario);
+        let guild_id = object::id(&g);
+        let mut s = test_scenario::take_shared<Storage>(&scenario);
+        let admin_cap = test_scenario::take_from_sender<AdminCap>(&scenario);
+        storage::set_storage_guild(&mut s, &admin_cap, guild_id);
+        transfer::public_transfer(admin_cap, ADMIN);
+        test_scenario::return_shared(s);
+        test_scenario::return_shared(g);
+    };
+
+    // 4. USER deposits cargo
+    scenario.next_tx(USER);
+    {
+        let mut s = test_scenario::take_shared<Storage>(&scenario);
+        let clock = clock::create_for_testing(scenario.ctx());
+        let receipt = storage::deposit(&mut s, b"guild_minerals", 100, 100000, &clock, scenario.ctx());
+        transfer::public_transfer(receipt, USER);
+        test_scenario::return_shared(s);
+        clock::destroy_for_testing(clock);
+    };
+
+    // 5. USER withdraws as guild member after 2 days
+    //    Normal fee: 100000 * 500 * 2 / 10000 = 10000
+    //    Guild fee: 10000 * (10000 - 3000) / 10000 = 7000 (30% discount)
+    scenario.next_tx(USER);
+    {
+        let mut s = test_scenario::take_shared<Storage>(&scenario);
+        let g = test_scenario::take_shared<Guild>(&scenario);
+        let guild_cap = test_scenario::take_from_sender<GuildMemberCap>(&scenario);
+        let receipt = test_scenario::take_from_sender<DepositReceipt>(&scenario);
+        let mut clock = clock::create_for_testing(scenario.ctx());
+        // 2 days = 172_800_000 ms
+        clock::set_for_testing(&mut clock, 172_800_000);
+        let payment = coin::mint_for_testing<SUI>(7000, scenario.ctx()); // guild fee = 7000
+        let cargo = storage::withdraw_as_guild_member(
+            &mut s, receipt, payment, &g, &guild_cap, &clock, scenario.ctx(),
+        );
+        // Verify cargo came out
+        assert!(storage::cargo_weight(&cargo) == 100);
+        assert!(storage::cargo_value(&cargo) == 100000);
+        transfer::public_transfer(cargo, USER);
+        test_scenario::return_to_address(USER, guild_cap);
+        test_scenario::return_shared(s);
+        test_scenario::return_shared(g);
+        clock::destroy_for_testing(clock);
+    };
+
+    scenario.end();
+}
+
+// ============================================================
+// Test 17: Seal guild member approve — guild member can access encrypted coords
+// ============================================================
+#[test]
+fun test_integration_seal_guild_member_approve() {
+    let mut scenario = test_scenario::begin(ADMIN);
+
+    // 1. Create storage
+    {
+        let clock = clock::create_for_testing(scenario.ctx());
+        let admin_cap = storage::create_storage(8008, 50000, 500, &clock, scenario.ctx());
+        transfer::public_transfer(admin_cap, ADMIN);
+        clock::destroy_for_testing(clock);
+    };
+
+    // 2. Create guild
+    scenario.next_tx(LEADER);
+    {
+        let clock = clock::create_for_testing(scenario.ctx());
+        guild::create_guild(std::string::utf8(b"SealGuild"), &clock, scenario.ctx());
+        clock::destroy_for_testing(clock);
+    };
+
+    // 3. Leader adds USER to guild
+    scenario.next_tx(LEADER);
+    {
+        let mut g = test_scenario::take_shared<Guild>(&scenario);
+        let leader_cap = test_scenario::take_from_sender<GuildMemberCap>(&scenario);
+        guild::add_member(&mut g, &leader_cap, USER, scenario.ctx());
+        test_scenario::return_to_address(LEADER, leader_cap);
+        test_scenario::return_shared(g);
+    };
+
+    // 4. Admin sets guild + encrypted coords on storage
+    scenario.next_tx(ADMIN);
+    {
+        let g = test_scenario::take_shared<Guild>(&scenario);
+        let guild_id = object::id(&g);
+        let mut s = test_scenario::take_shared<Storage>(&scenario);
+        let admin_cap = test_scenario::take_from_sender<AdminCap>(&scenario);
+        storage::set_storage_guild(&mut s, &admin_cap, guild_id);
+        storage::set_encrypted_coords(&mut s, &admin_cap, b"encrypted_xyz_coords");
+        // Verify coords stored
+        assert!(storage::get_encrypted_coords(&s) == b"encrypted_xyz_coords");
+        transfer::public_transfer(admin_cap, ADMIN);
+        test_scenario::return_shared(s);
+        test_scenario::return_shared(g);
+    };
+
+    // 5. Guild member (USER) calls seal_approve_guild_member — should succeed
+    scenario.next_tx(USER);
+    {
+        let g = test_scenario::take_shared<Guild>(&scenario);
+        let s = test_scenario::take_shared<Storage>(&scenario);
+        let guild_cap = test_scenario::take_from_sender<GuildMemberCap>(&scenario);
+
+        seal_policy::seal_approve_guild_member(&g, &guild_cap, &s);
+
+        test_scenario::return_to_address(USER, guild_cap);
+        test_scenario::return_shared(s);
+        test_scenario::return_shared(g);
+    };
+
+    scenario.end();
+}
+
+// ============================================================
+// Test 18: Seal courier approve — courier with badge can access storage coords
+// ============================================================
+#[test]
+fun test_integration_seal_courier_approve() {
+    let mut scenario = setup_full_world();
+
+    // 1. Admin sets encrypted coords on both storages
+    scenario.next_tx(ADMIN);
+    {
+        let (mut from, mut to) = take_storages_ordered(&scenario);
+        // We need both AdminCaps — take them
+        let cap1 = test_scenario::take_from_sender<AdminCap>(&scenario);
+        let cap2 = test_scenario::take_from_sender<AdminCap>(&scenario);
+        // Match caps to storages
+        let (from_cap, to_cap) = if (storage::storage_id_from_cap(&cap1) == object::id(&from)) {
+            (cap1, cap2)
+        } else {
+            (cap2, cap1)
+        };
+        storage::set_encrypted_coords(&mut from, &from_cap, b"source_coords_enc");
+        storage::set_encrypted_coords(&mut to, &to_cap, b"dest_coords_enc");
+        transfer::public_transfer(from_cap, ADMIN);
+        transfer::public_transfer(to_cap, ADMIN);
+        test_scenario::return_shared(from);
+        test_scenario::return_shared(to);
+    };
+
+    // 2. Client deposits cargo
+    scenario.next_tx(USER);
+    {
+        let (mut from, to) = take_storages_ordered(&scenario);
+        let clock = clock::create_for_testing(scenario.ctx());
+        let receipt = storage::deposit(&mut from, b"seal_cargo", 200, 10000, &clock, scenario.ctx());
+        transfer::public_transfer(receipt, USER);
+        test_scenario::return_shared(from);
+        test_scenario::return_shared(to);
+        clock::destroy_for_testing(clock);
+    };
+
+    // 3. Client creates contract
+    scenario.next_tx(USER);
+    {
+        let (from, to) = take_storages_ordered(&scenario);
+        let receipt = test_scenario::take_from_sender<DepositReceipt>(&scenario);
+        let mut clock = clock::create_for_testing(scenario.ctx());
+        clock::set_for_testing(&mut clock, 10000);
+        let reward = coin::mint_for_testing<SUI>(5000, scenario.ctx());
+        let penalty = coin::mint_for_testing<SUI>(2000, scenario.ctx());
+        courier_market::create_contract(
+            &from, &to, receipt, reward, penalty,
+            10000, vector[1001, 2002], 7_200_000, &clock, scenario.ctx(),
+        );
+        test_scenario::return_shared(from);
+        test_scenario::return_shared(to);
+        clock::destroy_for_testing(clock);
+    };
+
+    // 4. Courier accepts
+    scenario.next_tx(COURIER);
+    {
+        let mut contract = test_scenario::take_shared<CourierContract>(&scenario);
+        let mut clock = clock::create_for_testing(scenario.ctx());
+        clock::set_for_testing(&mut clock, 20000);
+        let deposit = coin::mint_for_testing<SUI>(10000, scenario.ctx());
+        let badge = courier_market::accept_contract(&mut contract, deposit, &clock, scenario.ctx());
+        transfer::public_transfer(badge, COURIER);
+        test_scenario::return_shared(contract);
+        clock::destroy_for_testing(clock);
+    };
+
+    // 5. Courier calls seal_approve_courier for source storage — should succeed
+    scenario.next_tx(COURIER);
+    {
+        let badge = test_scenario::take_from_sender<CourierBadge>(&scenario);
+        let contract = test_scenario::take_shared<CourierContract>(&scenario);
+        let (from, to) = take_storages_ordered(&scenario);
+
+        // Approve for source storage
+        seal_policy::seal_approve_courier(&badge, &contract, &from);
+        // Approve for destination storage
+        seal_policy::seal_approve_courier(&badge, &contract, &to);
+
+        transfer::public_transfer(badge, COURIER);
+        test_scenario::return_shared(contract);
+        test_scenario::return_shared(from);
+        test_scenario::return_shared(to);
     };
 
     scenario.end();
