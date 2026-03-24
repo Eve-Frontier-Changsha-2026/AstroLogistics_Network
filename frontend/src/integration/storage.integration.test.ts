@@ -1,8 +1,6 @@
 // frontend/src/integration/storage.integration.test.ts
 import { describe, it, expect } from 'vitest';
 import {
-  testClient,
-  testAddress,
   signAndExec,
   findCreatedId,
   queryObject,

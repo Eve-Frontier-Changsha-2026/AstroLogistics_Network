@@ -31,7 +31,26 @@
       "Bash(1 sui:*)",
       "Bash(echo \"EXIT: $?\")",
       "Bash(grep -E export.*from node_modules/@mysten/dapp-kit-react/dist/index.d.mts)",
-      "Bash(grep -E export.*ConnectButton node_modules/@mysten/dapp-kit-react/dist/ui.d.mts)"
+      "Bash(grep -E export.*ConnectButton node_modules/@mysten/dapp-kit-react/dist/ui.d.mts)",
+      "Bash(grep -B2 -A15 signAndExecuteTransaction node_modules/@mysten/dapp-kit-core/dist/*.mts)",
+      "Bash(find /Users/ramonliao/Documents/Code/Project/Web3/Hackathon/2026_HoH_SUI_HackerHouse_Changsha/EVE_Frontier/build/projects/AstroLogistics_Network/frontend/src -type f \\\\\\(-name *.tsx -o -name *.ts \\\\\\))",
+      "Bash(wc:*)",
+      "Bash(git -C /Users/ramonliao/Documents/Code/Project/Web3/Hackathon/2026_HoH_SUI_HackerHouse_Changsha/EVE_Frontier/build/projects/AstroLogistics_Network add frontend/src/components/ui/Button.test.tsx frontend/src/components/ui/Panel.test.tsx frontend/src/components/ui/Input.test.tsx frontend/src/components/ui/LoadingSpinner.test.tsx frontend/src/components/ui/StatusBadge.test.tsx frontend/src/components/ui/AddressDisplay.test.tsx frontend/src/components/ui/WalletGuard.test.tsx frontend/src/components/ui/TransactionToast.test.tsx)",
+      "Bash(git -C:*)",
+      "Bash(find /Users/ramonliao/Documents/Code/Project/Web3/Hackathon/2026_HoH_SUI_HackerHouse_Changsha/EVE_Frontier/build/projects/AstroLogistics_Network -name *.config.* -o -name *config* -type f)",
+      "Bash(grep -E \"\\(ts|js|json\\)$\")",
+      "Bash(find /Users/ramonliao/Documents/Code/Project/Web3/Hackathon/2026_HoH_SUI_HackerHouse_Changsha/EVE_Frontier/build/projects/AstroLogistics_Network -name .env* -o -name *.env)",
+      "Bash(grep -r 0x3407e5c8c245040bb2325dc1f5160188ec5ce811378107f1d2e6e82466bf706a /Users/ramonliao/Documents/Code/Project/Web3/Hackathon/2026_HoH_SUI_HackerHouse_Changsha/EVE_Frontier/build/projects/AstroLogistics_Network --include=*.ts --include=*.tsx --include=*.json -l)",
+      "Bash(find /Users/ramonliao/Documents/Code/Project/Web3/Hackathon/2026_HoH_SUI_HackerHouse_Changsha/EVE_Frontier/build/projects/AstroLogistics_Network/frontend/node_modules/.pnpm/@mysten+sui@2.9.1_typescript@5.9.3/node_modules/@mysten/sui/dist -name *grpc* -type f)",
+      "Bash(find /Users/ramonliao/Documents/Code/Project/Web3/Hackathon/2026_HoH_SUI_HackerHouse_Changsha/EVE_Frontier/build/projects/AstroLogistics_Network/frontend/node_modules/@mysten/sui -name *grpc* -type f)",
+      "Bash(grep -r WalletInitializer node_modules/@mysten/dapp-kit-core/dist/ --include=*.d.ts -l)",
+      "Bash(CORE_DIST=\"/Users/ramonliao/Documents/Code/Project/Web3/Hackathon/2026_HoH_SUI_HackerHouse_Changsha/EVE_Frontier/build/projects/AstroLogistics_Network/frontend/node_modules/.pnpm/@mysten+dapp-kit-core@1.2.0_@mysten+sui@2.9.1_typescript@5.9.3__typescript@5.9.3/node_modules/@mysten/dapp-kit-core/dist\")",
+      "Read(//Users/ramonliao/Documents/Code/Project/Web3/Hackathon/2026_HoH_SUI_HackerHouse_Changsha/EVE_Frontier/build/projects/AstroLogistics_Network/$CORE_DIST/**)",
+      "Bash(WALLET_STD=\"/Users/ramonliao/Documents/Code/Project/Web3/Hackathon/2026_HoH_SUI_HackerHouse_Changsha/EVE_Frontier/build/projects/AstroLogistics_Network/frontend/node_modules/.pnpm/@mysten+wallet-standard@0.20.1_@mysten+sui@2.9.1_typescript@5.9.3_/node_modules/@mysten/wallet-standard/dist\")",
+      "Read(//Users/ramonliao/Documents/Code/Project/Web3/Hackathon/2026_HoH_SUI_HackerHouse_Changsha/EVE_Frontier/build/projects/AstroLogistics_Network/$WALLET_STD/**)",
+      "Bash(node -e \"require.resolve\\(''@mysten/wallet-standard''\\)\")",
+      "Bash(node -e \"console.log\\(require.resolve\\(''@mysten/wallet-standard''\\)\\)\")",
+      "Bash(grep:*)"
     ]
   },
   "enabledPlugins": {
