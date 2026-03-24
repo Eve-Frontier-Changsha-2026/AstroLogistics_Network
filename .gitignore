@@ -2,7 +2,9 @@ tasks/progress.md
 tasks/lessons.md
 .worktrees
 .env*
+!frontend/.env.test.local.example
 scripts/node_modules/
 frontend/node_modules/
 frontend/dist/
+frontend/.env.test.local
 .claude/settings.local.json
