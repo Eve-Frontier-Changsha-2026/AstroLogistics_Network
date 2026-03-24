@@ -10,7 +10,10 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:integration": "vitest run --config vitest.config.integration.ts"
+    "test:integration": "vitest run --config vitest.config.integration.ts",
+    "test:e2e": "playwright test",
+    "test:e2e:headed": "playwright test --headed",
+    "test:e2e:ui": "playwright test --ui"
   },
   "dependencies": {
     "@mysten/dapp-kit-react": "^2.0.1",
@@ -22,6 +25,10 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.39.4",
+    "@mysten/dapp-kit-core": "^1.2.0",
+    "@mysten/utils": "^0.3.1",
+    "@mysten/wallet-standard": "^0.20.1",
+    "@playwright/test": "^1.58.2",
     "@tailwindcss/vite": "^4.2.2",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
