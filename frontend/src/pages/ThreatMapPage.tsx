@@ -8,6 +8,7 @@ import { useCurrentClient } from '@mysten/dapp-kit-react';
 import { useQuery } from '@tanstack/react-query';
 import { TESTNET_OBJECTS } from '../config/objects';
 import { bcs } from '@mysten/sui/bcs';
+import { useSystemName } from '../lib/eve-eyes/hooks';
 
 export default function ThreatMapPage() {
   const client = useCurrentClient();
@@ -34,6 +35,8 @@ export default function ThreatMapPage() {
       }),
     enabled: !!queryId,
   });
+
+  const systemInfo = useSystemName(queryId ? Number(queryId) : null);
 
   const tmFields = threatMap.data?.object?.json as Record<string, unknown> | null;
   // getDynamicField returns { dynamicField: { name, valueType, ... } }
@@ -67,7 +70,7 @@ export default function ThreatMapPage() {
           {dangerEntry.isPending && queryId && <LoadingSpinner />}
           {dfResult ? (
             <div className="p-3 bg-gray-800/50 rounded-lg text-sm space-y-1">
-              <div><span className="text-gray-400">System ID: </span>{systemId}</div>
+              <div><span className="text-gray-400">System ID: </span>{systemId}{systemInfo.name && <span className="text-cyan-400"> ({systemInfo.name})</span>}</div>
               <div><span className="text-gray-400">Value Type: </span>
                 <span className="text-cyan-400">{dfResult.valueType}</span>
               </div>
@@ -77,7 +80,7 @@ export default function ThreatMapPage() {
               <p className="text-gray-500 text-xs mt-2">Full BCS decode requires generated Move struct types.</p>
             </div>
           ) : queryId && !dangerEntry.isPending ? (
-            <p className="text-gray-500 text-sm">No entry for system {systemId}.</p>
+            <p className="text-gray-500 text-sm">No entry for system {systemId}{systemInfo.name ? ` (${systemInfo.name})` : ''}.</p>
           ) : null}
         </Panel>
       </div>
