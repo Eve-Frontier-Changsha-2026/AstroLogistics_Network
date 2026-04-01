@@ -109,29 +109,29 @@ describe('useTransactionExecutor', () => {
     expect(result.current.error).toBe('Unknown error');
   });
 
-  it('handles concurrent executions — last one wins', async () => {
+  it('blocks concurrent double-submit via ref guard', async () => {
     let resolve1: (v: unknown) => void;
-    let resolve2: (v: unknown) => void;
     mockDAppKit.signAndExecuteTransaction
-      .mockImplementationOnce(() => new Promise(r => { resolve1 = r; }))
-      .mockImplementationOnce(() => new Promise(r => { resolve2 = r; }));
+      .mockImplementationOnce(() => new Promise(r => { resolve1 = r; }));
     const { result } = renderHook(() => useTransactionExecutor(), { wrapper: TestProvider });
 
     let p1: Promise<string | null>, p2: Promise<string | null>;
     act(() => {
       p1 = result.current.execute(new Transaction());
-      p2 = result.current.execute(new Transaction());
+      p2 = result.current.execute(new Transaction()); // blocked by ref guard
     });
 
-    await act(async () => {
-      resolve2!({ Transaction: { digest: 'tx-2' } });
-      await p2!;
-    });
+    // Second call returns null immediately — not queued
+    expect(await p2!).toBeNull();
+    // Only one signAndExecuteTransaction call made
+    expect(mockDAppKit.signAndExecuteTransaction).toHaveBeenCalledTimes(1);
+
     await act(async () => {
       resolve1!({ Transaction: { digest: 'tx-1' } });
       await p1!;
     });
 
+    expect(result.current.digest).toBe('tx-1');
     expect(result.current.loading).toBe(false);
   });
 

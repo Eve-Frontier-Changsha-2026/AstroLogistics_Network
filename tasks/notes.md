@@ -369,3 +369,82 @@ constants (pure fns)
 - **Dynamic fields**: guild_id on Storage, GuildBonusInfo on CourierContract, OwnerFees on FuelStation, Guild.members Table — need `getDynamicFieldObject`/`getDynamicFields`
 - **Auto-transfer**: SUI runtime auto-transfers returned objects with `key+store` to tx sender
 - **Event discovery**: CourierContract IDs found via `queryEvents(ContractCreated)`, not object queries
+
+---
+
+## iframe 錢包聯動方案（2026-03-31）
+
+### 背景
+- AstroLogistics Network 前端會被 **Frontier_Explorer_Hub** 用 iframe 嵌入
+- Parent: `https://frontier-explorer-hub.vercel.app`（Next.js + `@mysten/dapp-kit-react`）
+- Iframe: AstroLogistics Network（Vite + `@mysten/dapp-kit-react`）
+- **Cross-origin**（不同 Vercel subdomain），必須用 postMessage 橋接
+
+### 方案：postMessage Proxy Wallet
+
+**Iframe 端（AstroLogistics）**：
+- 實作 `ProxyWallet` class（implements wallet-standard `WalletWithFeatures`）
+- 偵測 `window !== window.parent` 時 `registerWallet(new ProxyWallet())`
+- 所有 signing 操作透過 `postMessage` 委派給 parent
+- dapp-kit 自動 discover 這個 ProxyWallet，使用者選它即可
+
+**Parent 端（Frontier_Explorer_Hub）**：
+- 加 `WalletBridge` listener，監聽 `wallet-rpc` type 的 postMessage
+- 收到後用已連線的 wallet 執行 `signAndExecuteTransaction` 等操作
+- 結果透過 `wallet-rpc-response` 回傳 iframe
+
+**進階（自動連線）**：
+- iframe 啟動時自動 `rpc('getAccounts')`，有帳戶就 auto-select ProxyWallet
+
+### 注意事項
+- `postMessage` 的 `targetOrigin` 要用具體 domain，不用 `'*'`
+- `Transaction` 物件需序列化成 bytes 過 postMessage
+- RPC call 加 timeout 防 parent 沒回應
+- iframe tag 需 `allow="clipboard-write"`
+
+### 狀態
+- [ ] 尚未實作，等 Frontier_Explorer_Hub 端同步配合
+
+---
+
+## EVE Eyes API 整合規劃（2026-03-31）
+
+### API 資訊
+- Base URL: `https://eve-eyes.d0v.xyz`
+- Auth: `Authorization: ApiKey eve_ak_OGg2rSPof-S_13eN_kpDeIw4-rG5_q8leYZhdL2IV5w`
+- 完整 endpoint 清單見 memory `reference_eve_eyes_indexer.md`
+
+### Phase 1：World API 三件套（改善 Transport UX）
+目標：Transport 頁面從「手填 system_id 數字」→「搜尋星系名 → 自動算路徑」
+
+| Endpoint | 用途 | Auth |
+|----------|------|------|
+| `GET /api/world/systems/search?q=name` | 星系搜尋 autocomplete | Public |
+| `GET /api/world/systems/{id}` | 顯示星系名稱取代純數字 | Public |
+| `GET /api/world/route?originId=X&destinationId=Y` | 自動計算兩星系間路徑 | Public |
+
+實作：
+- `frontend/src/lib/eve-eyes/client.ts` — fetch wrapper
+- `frontend/src/lib/eve-eyes/types.ts` — response types
+- `frontend/src/lib/eve-eyes/hooks.ts` — `useSystemSearch`, `useRoute`, `useSystemDetail`
+- 改 Transport 頁面：起點/終點搜尋框 + route 自動填入 PTB
+- 改 Storage Detail / ThreatMap：system_id → 顯示星系名
+
+### Phase 2：完整整合（以後升級）
+| Endpoint | 整合目標 |
+|----------|---------|
+| `GET /api/indexer/killmails` | ThreatMap — 即時擊殺 feed，動態威脅情報 |
+| `GET /api/v1/indexer/building-leaderboard` | Dashboard — 建築排行榜 |
+| `GET /api/world/modules-summary` | Dashboard — EVE 世界模組狀態 |
+| `GET /api/indexer/module-call-counts` | Dashboard — 鏈上活動統計 |
+| `POST /api/auth/challenge + login` | 可選 — 錢包 JWT session（目前 dapp-kit 直連已夠）|
+
+### 注意事項
+- Indexer 只索引 EVE world contracts（`0xd12a70c...`），不索引 AstroLogistics package
+- 我們合約的歷史事件繼續用 SUI Events API
+- World API 全 public，不需 API key
+- 環境變數：`VITE_EVE_EYES_URL`, `VITE_EVE_EYES_API_KEY`
+
+### 狀態
+- [ ] Phase 1 — World API 三件套（待開新 chat 實作）
+- [ ] Phase 2 — Killmails + Leaderboard + Module Summary（以後升級）

@@ -14,6 +14,7 @@ import { TRANSPORT_STATUS, TRANSPORT_TIER } from '../lib/constants';
 import { useStorageObject } from '../hooks/useStorageList';
 import { useRoute } from '../lib/eve-eyes/hooks';
 import { formatDistance } from '../lib/format';
+import { parseU64 } from '../lib/parse';
 
 export default function TransportPage() {
   const orders = useMyTransportOrders();
@@ -38,7 +39,9 @@ export default function TransportPage() {
 
   const handleCreate = async () => {
     if (!fromStorage || !toStorage || !receiptId) return;
-    const ptb = buildCreateOrder(fromStorage, toStorage, receiptId, [1, 2], Number(fuelCost), 0, Number(tier));
+    // M-2 fix: derive route from storage system_ids
+    const route = (fromSystemId && toSystemId) ? [fromSystemId, toSystemId] : [1, 2];
+    const ptb = buildCreateOrder(fromStorage, toStorage, receiptId, route, parseU64(fuelCost), 0, Number(tier));
     await tx.execute(ptb);
   };
 
