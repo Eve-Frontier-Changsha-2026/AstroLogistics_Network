@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { useDAppKit, useCurrentClient } from '@mysten/dapp-kit-react';
 import type { Transaction } from '@mysten/sui/transactions';
 import { useQueryClient } from '@tanstack/react-query';
@@ -18,8 +18,11 @@ export function useTransactionExecutor(): TxResult {
   const [digest, setDigest] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const executing = useRef(false); // M-4 fix: sync guard against double-submit
 
   const execute = useCallback(async (tx: Transaction): Promise<string | null> => {
+    if (executing.current) return null; // reject concurrent calls
+    executing.current = true;
     setLoading(true);
     setDigest(null);
     setError(null);
@@ -41,6 +44,7 @@ export function useTransactionExecutor(): TxResult {
       setError(msg);
       return null;
     } finally {
+      executing.current = false;
       setLoading(false);
     }
   }, [dAppKit, client, queryClient]);

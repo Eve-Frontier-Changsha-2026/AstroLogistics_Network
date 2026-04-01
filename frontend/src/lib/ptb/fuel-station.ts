@@ -3,9 +3,9 @@ import { MODULE } from '../../config/contracts';
 
 export function buildBuyFuel(
   stationId: string,
-  amount: number,
-  maxPricePerUnit: number,
-  paymentAmount: number,
+  amount: number | bigint,
+  maxPricePerUnit: number | bigint,
+  paymentAmount: number | bigint,
 ): Transaction {
   const tx = new Transaction();
   const [payment] = tx.splitCoins(tx.gas, [tx.pure.u64(paymentAmount)]);

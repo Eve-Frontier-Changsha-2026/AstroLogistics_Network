@@ -5,11 +5,11 @@ export function buildCreateContract(
   fromStorageId: string,
   toStorageId: string,
   receiptId: string,
-  rewardAmount: number,
-  cancelPenaltyAmount: number,
-  minCourierDeposit: number,
-  route: number[],
-  deadlineDuration: number,
+  rewardAmount: number | bigint,
+  cancelPenaltyAmount: number | bigint,
+  minCourierDeposit: number | bigint,
+  route: (number | bigint)[],
+  deadlineDuration: number | bigint,
 ): Transaction {
   const tx = new Transaction();
   const [reward] = tx.splitCoins(tx.gas, [tx.pure.u64(rewardAmount)]);
@@ -33,7 +33,7 @@ export function buildCreateContract(
 
 export function buildAcceptContract(
   contractId: string,
-  depositAmount: number,
+  depositAmount: number | bigint,
 ): Transaction {
   const tx = new Transaction();
   const [deposit] = tx.splitCoins(tx.gas, [tx.pure.u64(depositAmount)]);

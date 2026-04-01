@@ -2,7 +2,8 @@ import { WalletGuard } from '../components/ui/WalletGuard';
 import { Panel } from '../components/ui/Panel';
 import { Button } from '../components/ui/Button';
 import { LoadingSpinner } from '../components/ui/LoadingSpinner';
-import { useOwnedAdminCaps } from '../hooks/useStorageList';
+import { useOwnedAdminCaps, useStorageObject } from '../hooks/useStorageList';
+import { useSystemName } from '../lib/eve-eyes/hooks';
 import { useFuelBalance } from '../hooks/useFuelBalance';
 import { useMyContracts } from '../hooks/useCourierContracts';
 import { formatFuel } from '../lib/format';
@@ -10,6 +11,21 @@ import { Link } from 'react-router-dom';
 import { useTransactionExecutor } from '../hooks/useTransactionExecutor';
 import { TransactionToast } from '../components/ui/TransactionToast';
 import { buildCreateStorage } from '../lib/ptb/storage';
+
+function SystemLabel({ storageId }: { storageId: string }) {
+  const storage = useStorageObject(storageId);
+  const json = storage.data?.object?.json as Record<string, unknown> | null;
+  const systemId = Number(json?.['system_id'] ?? 0);
+  const systemInfo = useSystemName(systemId > 0 ? systemId : null);
+
+  if (systemInfo.name) {
+    return <span className="text-gray-300 text-xs ml-2">— {systemInfo.name}</span>;
+  }
+  if (systemId > 0) {
+    return <span className="text-gray-500 text-xs ml-2">— #{systemId}</span>;
+  }
+  return null;
+}
 
 export default function DashboardPage() {
   const adminCaps = useOwnedAdminCaps();
@@ -55,6 +71,7 @@ export default function DashboardPage() {
                     className="block p-3 rounded-lg bg-gray-800/50 hover:bg-gray-700/50 transition-colors border border-gray-700">
                     <span className="text-sm text-gray-400">Storage: </span>
                     <span className="text-cyan-400 font-mono text-sm">{storageId.slice(0, 10)}...</span>
+                    <SystemLabel storageId={storageId} />
                   </Link>
                 );
               })}

@@ -12,7 +12,9 @@ import { useMyReceipts } from '../hooks/useStorageDetail';
 import { useTransactionExecutor } from '../hooks/useTransactionExecutor';
 import { buildCreateContract } from '../lib/ptb/courier';
 import { formatMist } from '../lib/format';
+import { parseU64 } from '../lib/parse';
 import { CONTRACT_STATUS } from '../lib/constants';
+import { useStorageObject } from '../hooks/useStorageList';
 
 export default function BountyBoardPage() {
   const contracts = useMyContracts();
@@ -27,12 +29,19 @@ export default function BountyBoardPage() {
   const [minDeposit, setMinDeposit] = useState('1000000000');
   const [deadline, setDeadline] = useState('86400000');
 
+  // M-2 fix: derive route from storage system_ids instead of hardcoded [1, 2]
+  const fromStorageObj = useStorageObject(fromStorage || undefined);
+  const toStorageObj = useStorageObject(toStorage || undefined);
+  const fromSystemId = Number((fromStorageObj.data?.object?.json as Record<string, unknown> | null)?.['system_id'] ?? 0);
+  const toSystemId = Number((toStorageObj.data?.object?.json as Record<string, unknown> | null)?.['system_id'] ?? 0);
+
   const handleCreate = async () => {
     if (!fromStorage || !toStorage || !receiptId) return;
+    const route = (fromSystemId > 0 && toSystemId > 0) ? [fromSystemId, toSystemId] : [1, 2];
     const ptb = buildCreateContract(
       fromStorage, toStorage, receiptId,
-      Number(reward), Number(penalty), Number(minDeposit),
-      [1, 2], Number(deadline),
+      parseU64(reward), parseU64(penalty), parseU64(minDeposit),
+      route, parseU64(deadline),
     );
     await tx.execute(ptb);
   };

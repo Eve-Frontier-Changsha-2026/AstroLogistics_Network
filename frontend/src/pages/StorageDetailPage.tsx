@@ -12,6 +12,8 @@ import { useOwnedAdminCaps } from '../hooks/useStorageList';
 import { useTransactionExecutor } from '../hooks/useTransactionExecutor';
 import { buildDeposit, buildWithdraw, buildShareStorage, buildSetStorageGuild, buildClaimFees, buildUpdateFeeRate } from '../lib/ptb/storage';
 import { formatBps } from '../lib/format';
+import { parseU64 } from '../lib/parse';
+import { useSystemName } from '../lib/eve-eyes/hooks';
 
 export default function StorageDetailPage() {
   const { storageId } = useParams<{ storageId: string }>();
@@ -23,6 +25,7 @@ export default function StorageDetailPage() {
   const [itemType, setItemType] = useState('ore');
   const [weight, setWeight] = useState('100');
   const [value, setValue] = useState('1000');
+  const [withdrawPayment, setWithdrawPayment] = useState('');
   const [guildId, setGuildId] = useState('');
   const [newFeeRate, setNewFeeRate] = useState('');
 
@@ -31,6 +34,9 @@ export default function StorageDetailPage() {
   const obj = storage.data?.object;
   const fields = obj?.json as Record<string, unknown> | null;
   const isShared = obj?.owner.$kind === 'Shared';
+
+  const systemIdNum = Number(fields?.['system_id'] ?? 0);
+  const systemInfo = useSystemName(fields ? systemIdNum : null);
 
   // Find matching AdminCap for this storage
   const myAdminCap = (adminCaps.data?.objects ?? []).find((cap) => {
@@ -46,14 +52,13 @@ export default function StorageDetailPage() {
   });
 
   const handleDeposit = async () => {
-    const ptb = buildDeposit(storageId, itemType, Number(weight), Number(value));
+    const ptb = buildDeposit(storageId, itemType, parseU64(weight), parseU64(value));
     await tx.execute(ptb);
   };
 
   const handleWithdraw = async (receiptId: string) => {
-    const feeRateBps = Number(fields?.['fee_rate_bps'] ?? 0);
-    const fee = Math.ceil(Number(value) * feeRateBps / 10000);
-    const ptb = buildWithdraw(storageId, receiptId, fee);
+    // H-2 fix: use explicit payment input, not deposit form's value
+    const ptb = buildWithdraw(storageId, receiptId, parseU64(withdrawPayment));
     await tx.execute(ptb);
   };
 
@@ -77,7 +82,7 @@ export default function StorageDetailPage() {
 
   const handleUpdateFeeRate = async () => {
     if (!adminCapId || !newFeeRate) return;
-    const ptb = buildUpdateFeeRate(storageId, adminCapId, Number(newFeeRate));
+    const ptb = buildUpdateFeeRate(storageId, adminCapId, parseU64(newFeeRate));
     await tx.execute(ptb);
   };
 
@@ -94,7 +99,7 @@ export default function StorageDetailPage() {
               <div className="grid grid-cols-2 gap-3 text-sm">
                 <div><span className="text-gray-400">ID: </span><AddressDisplay address={storageId} /></div>
                 <div><span className="text-gray-400">Owner: </span><AddressDisplay address={String(fields['owner'] ?? '')} /></div>
-                <div><span className="text-gray-400">System ID: </span>{String(fields['system_id'] ?? '')}</div>
+                <div><span className="text-gray-400">System ID: </span>{String(fields['system_id'] ?? '')}{systemInfo.name && <span className="text-cyan-400"> ({systemInfo.name})</span>}</div>
                 <div><span className="text-gray-400">Capacity: </span>{String(fields['current_load'] ?? 0)} / {String(fields['max_capacity'] ?? 0)}</div>
                 <div><span className="text-gray-400">Fee Rate: </span>{formatBps(Number(fields['fee_rate_bps'] ?? 0))}</div>
                 <div><span className="text-gray-400">Shared: </span>{isShared ? 'Yes' : 'No (Owned)'}</div>
@@ -112,22 +117,29 @@ export default function StorageDetailPage() {
 
             <Panel title={`My Receipts (${myReceipts.length})`}>
               {myReceipts.length === 0 ? <p className="text-gray-500 text-sm">No receipts for this storage.</p> : (
-                <div className="space-y-2">
-                  {myReceipts.map((r) => {
-                    const json = r.json as Record<string, unknown> | null;
-                    return (
-                      <div key={r.objectId} className="flex items-center justify-between p-2 bg-gray-800/50 rounded-lg">
-                        <div className="text-sm">
-                          <span className="text-gray-400">Cargo: </span>
-                          <span className="font-mono text-cyan-400">{String(json?.['cargo_id'] ?? '').slice(0, 10)}...</span>
+                <>
+                  <div className="mb-3">
+                    <Input label="Withdraw Payment (MIST)" type="number" value={withdrawPayment}
+                      onChange={(e) => setWithdrawPayment(e.target.value)} className="w-48" />
+                    <p className="text-xs text-gray-500 mt-1">Fee = cargo_value × {formatBps(Number(fields?.['fee_rate_bps'] ?? 0))}</p>
+                  </div>
+                  <div className="space-y-2">
+                    {myReceipts.map((r) => {
+                      const json = r.json as Record<string, unknown> | null;
+                      return (
+                        <div key={r.objectId} className="flex items-center justify-between p-2 bg-gray-800/50 rounded-lg">
+                          <div className="text-sm">
+                            <span className="text-gray-400">Cargo: </span>
+                            <span className="font-mono text-cyan-400">{String(json?.['cargo_id'] ?? '').slice(0, 10)}...</span>
+                          </div>
+                          <Button variant="secondary" onClick={() => handleWithdraw(r.objectId)} loading={tx.loading}>
+                            Withdraw
+                          </Button>
                         </div>
-                        <Button variant="secondary" onClick={() => handleWithdraw(r.objectId)} loading={tx.loading}>
-                          Withdraw
-                        </Button>
-                      </div>
-                    );
-                  })}
-                </div>
+                      );
+                    })}
+                  </div>
+                </>
               )}
             </Panel>
 

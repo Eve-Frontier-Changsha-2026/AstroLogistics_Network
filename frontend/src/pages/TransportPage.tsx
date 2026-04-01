@@ -11,6 +11,10 @@ import { useMyReceipts } from '../hooks/useStorageDetail';
 import { useTransactionExecutor } from '../hooks/useTransactionExecutor';
 import { buildCreateOrder, buildCompleteTransport, buildCancelOrder } from '../lib/ptb/transport';
 import { TRANSPORT_STATUS, TRANSPORT_TIER } from '../lib/constants';
+import { useStorageObject } from '../hooks/useStorageList';
+import { useRoute } from '../lib/eve-eyes/hooks';
+import { formatDistance } from '../lib/format';
+import { parseU64 } from '../lib/parse';
 
 export default function TransportPage() {
   const orders = useMyTransportOrders();
@@ -23,9 +27,21 @@ export default function TransportPage() {
   const [fuelCost, setFuelCost] = useState('100000000000');
   const [tier, setTier] = useState('0');
 
+  const fromStorageObj = useStorageObject(fromStorage || undefined);
+  const toStorageObj = useStorageObject(toStorage || undefined);
+
+  const fromJson = fromStorageObj.data?.object?.json as Record<string, unknown> | null;
+  const toJson = toStorageObj.data?.object?.json as Record<string, unknown> | null;
+  const fromSystemId = Number(fromJson?.['system_id'] ?? 0) || null;
+  const toSystemId = Number(toJson?.['system_id'] ?? 0) || null;
+
+  const route = useRoute(fromSystemId, toSystemId);
+
   const handleCreate = async () => {
     if (!fromStorage || !toStorage || !receiptId) return;
-    const ptb = buildCreateOrder(fromStorage, toStorage, receiptId, [1, 2], Number(fuelCost), 0, Number(tier));
+    // M-2 fix: derive route from storage system_ids
+    const route = (fromSystemId && toSystemId) ? [fromSystemId, toSystemId] : [1, 2];
+    const ptb = buildCreateOrder(fromStorage, toStorage, receiptId, route, parseU64(fuelCost), 0, Number(tier));
     await tx.execute(ptb);
   };
 
@@ -86,6 +102,32 @@ export default function TransportPage() {
             <Button onClick={handleCreate} loading={tx.loading}>Create Order</Button>
           </div>
         </Panel>
+
+        {(route.originName || route.distance != null) && (
+          <div className="px-4 py-3 bg-gray-800/30 rounded-lg border border-gray-700/50 text-sm text-gray-300 flex items-center gap-2">
+            {route.isLoading ? (
+              <LoadingSpinner />
+            ) : (
+              <>
+                <span className="text-cyan-400">{route.originName ?? `#${fromSystemId}`}</span>
+                <span className="text-gray-500">→</span>
+                <span className="text-cyan-400">{route.destinationName ?? `#${toSystemId}`}</span>
+                {route.distance != null && (
+                  <>
+                    <span className="text-gray-600 mx-1">|</span>
+                    <span>{formatDistance(route.distance)}</span>
+                  </>
+                )}
+                {route.jumps != null && (
+                  <>
+                    <span className="text-gray-600 mx-1">|</span>
+                    <span>{route.jumps} jumps</span>
+                  </>
+                )}
+              </>
+            )}
+          </div>
+        )}
 
         <Panel title="My Transport Orders">
           {orders.isPending ? <LoadingSpinner /> : (

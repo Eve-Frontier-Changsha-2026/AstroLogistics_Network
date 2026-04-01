@@ -5,9 +5,9 @@ export function buildCreateOrder(
   fromStorageId: string,
   toStorageId: string,
   receiptId: string,
-  route: number[],
-  fuelCost: number,
-  dangerSnapshot: number,
+  route: (number | bigint)[],
+  fuelCost: number | bigint,
+  dangerSnapshot: number | bigint,
   tier: number,
 ): Transaction {
   const tx = new Transaction();

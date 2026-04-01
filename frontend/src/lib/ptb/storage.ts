@@ -2,9 +2,9 @@ import { Transaction } from '@mysten/sui/transactions';
 import { MODULE, CLOCK } from '../../config/contracts';
 
 export function buildCreateStorage(
-  systemId: number,
-  maxCapacity: number,
-  feeRateBps: number,
+  systemId: number | bigint,
+  maxCapacity: number | bigint,
+  feeRateBps: number | bigint,
 ): Transaction {
   const tx = new Transaction();
   tx.moveCall({
@@ -22,8 +22,8 @@ export function buildCreateStorage(
 export function buildDeposit(
   storageId: string,
   itemType: string,
-  weight: number,
-  value: number,
+  weight: number | bigint,
+  value: number | bigint,
 ): Transaction {
   const tx = new Transaction();
   tx.moveCall({
@@ -42,7 +42,7 @@ export function buildDeposit(
 export function buildWithdraw(
   storageId: string,
   receiptId: string,
-  paymentAmount: number,
+  paymentAmount: number | bigint,
 ): Transaction {
   const tx = new Transaction();
   const [payment] = tx.splitCoins(tx.gas, [tx.pure.u64(paymentAmount)]);
@@ -102,7 +102,7 @@ export function buildClaimFees(
 export function buildUpdateFeeRate(
   storageId: string,
   adminCapId: string,
-  newRate: number,
+  newRate: number | bigint,
 ): Transaction {
   const tx = new Transaction();
   tx.moveCall({

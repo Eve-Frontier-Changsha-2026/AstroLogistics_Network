@@ -1,15 +1,18 @@
 import { createDAppKit } from '@mysten/dapp-kit-react';
 import { SuiGrpcClient } from '@mysten/sui/grpc';
 import { NETWORKS, DEFAULT_NETWORK, GRPC_URLS, type Network } from './config/network';
-import { testWalletInitializer } from './test/TestWallet';
 import type { WalletInitializer } from '@mysten/dapp-kit-core';
 
-// DEV-only: inject test wallet from localStorage for Playwright E2E
+// DEV-only: inject test wallet from localStorage for Playwright E2E.
+// Uses dynamic import() so TestWallet.ts is excluded from the production bundle.
 const walletInitializers: WalletInitializer[] = [];
 if (import.meta.env.DEV && typeof localStorage !== 'undefined') {
   const testKey = localStorage.getItem('testKeypair');
   if (testKey) {
-    walletInitializers.push(testWalletInitializer(testKey));
+    // Lazy-loaded — Vite code-splits this chunk and eliminates it in prod
+    import('./test/TestWallet').then(({ testWalletInitializer }) => {
+      walletInitializers.push(testWalletInitializer(testKey));
+    }).catch(() => { /* test wallet unavailable */ });
   }
 }
 

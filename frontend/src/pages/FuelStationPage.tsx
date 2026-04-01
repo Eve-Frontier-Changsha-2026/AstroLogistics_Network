@@ -13,6 +13,7 @@ import { buildBuyFuel, buildClaimRevenue, buildWithdrawSupplier } from '../lib/p
 import { TESTNET_OBJECTS } from '../config/objects';
 import { TYPE } from '../config/contracts';
 import { formatFuel, formatBps } from '../lib/format';
+import { parseU64 } from '../lib/parse';
 
 const STATIONS = [
   { id: TESTNET_OBJECTS.fuelStation1, label: 'Station 1' },
@@ -33,7 +34,7 @@ export default function FuelStationPage() {
   const fields = station.data?.object?.json as Record<string, unknown> | null;
 
   const handleBuy = async () => {
-    const ptb = buildBuyFuel(selectedStation, Number(buyAmount), Number(maxPrice), Number(paymentAmount));
+    const ptb = buildBuyFuel(selectedStation, parseU64(buyAmount), parseU64(maxPrice), parseU64(paymentAmount));
     await tx.execute(ptb);
   };
 

@@ -15,6 +15,7 @@ import { useTransactionExecutor } from '../hooks/useTransactionExecutor';
 import { buildAcceptContract, buildPickupAndDeliver, buildConfirmDelivery, buildRaiseDispute, buildCancelByClient, buildClaimTimeout } from '../lib/ptb/courier';
 import { CONTRACT_STATUS } from '../lib/constants';
 import { formatMist, timeRemaining } from '../lib/format';
+import { parseU64 } from '../lib/parse';
 
 export default function ContractDetailPage() {
   const { contractId } = useParams<{ contractId: string }>();
@@ -44,7 +45,7 @@ export default function ContractDetailPage() {
   const badgeId = myBadge?.objectId;
 
   const handleAccept = async () => {
-    const ptb = buildAcceptContract(contractId, Number(depositAmount));
+    const ptb = buildAcceptContract(contractId, parseU64(depositAmount));
     await tx.execute(ptb);
   };
 

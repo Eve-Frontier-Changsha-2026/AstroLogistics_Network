@@ -6,6 +6,7 @@ import {
   formatTimestamp,
   formatBps,
   timeRemaining,
+  formatDistance,
 } from './format';
 
 describe('formatAddress', () => {
@@ -164,5 +165,23 @@ describe('timeRemaining', () => {
     vi.setSystemTime(new Date('2026-01-01T00:00:00Z'));
     const deadline = Date.now() + 25 * 3_600_000;
     expect(timeRemaining(deadline)).toBe('1d 1h');
+  });
+});
+
+describe('formatDistance', () => {
+  it('formats light-years with 2 decimals', () => {
+    expect(formatDistance(1.2345)).toBe('1.23 LY');
+  });
+
+  it('formats zero', () => {
+    expect(formatDistance(0)).toBe('0.00 LY');
+  });
+
+  it('formats large values', () => {
+    expect(formatDistance(1234.567)).toBe('1,234.57 LY');
+  });
+
+  it('formats small values', () => {
+    expect(formatDistance(0.001)).toBe('0.00 LY');
   });
 });
