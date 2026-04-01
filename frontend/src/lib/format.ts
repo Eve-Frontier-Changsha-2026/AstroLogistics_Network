@@ -29,3 +29,7 @@ export function timeRemaining(deadlineMs: number): string {
   if (hours > 24) return `${Math.floor(hours / 24)}d ${hours % 24}h`;
   return `${hours}h ${mins}m`;
 }
+
+export function formatDistance(ly: number): string {
+  return `${ly.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} LY`;
+}

@@ -12,6 +12,7 @@ import { useOwnedAdminCaps } from '../hooks/useStorageList';
 import { useTransactionExecutor } from '../hooks/useTransactionExecutor';
 import { buildDeposit, buildWithdraw, buildShareStorage, buildSetStorageGuild, buildClaimFees, buildUpdateFeeRate } from '../lib/ptb/storage';
 import { formatBps } from '../lib/format';
+import { useSystemName } from '../lib/eve-eyes/hooks';
 
 export default function StorageDetailPage() {
   const { storageId } = useParams<{ storageId: string }>();
@@ -31,6 +32,9 @@ export default function StorageDetailPage() {
   const obj = storage.data?.object;
   const fields = obj?.json as Record<string, unknown> | null;
   const isShared = obj?.owner.$kind === 'Shared';
+
+  const systemIdNum = Number(fields?.['system_id'] ?? 0);
+  const systemInfo = useSystemName(fields ? systemIdNum : null);
 
   // Find matching AdminCap for this storage
   const myAdminCap = (adminCaps.data?.objects ?? []).find((cap) => {
@@ -94,7 +98,7 @@ export default function StorageDetailPage() {
               <div className="grid grid-cols-2 gap-3 text-sm">
                 <div><span className="text-gray-400">ID: </span><AddressDisplay address={storageId} /></div>
                 <div><span className="text-gray-400">Owner: </span><AddressDisplay address={String(fields['owner'] ?? '')} /></div>
-                <div><span className="text-gray-400">System ID: </span>{String(fields['system_id'] ?? '')}</div>
+                <div><span className="text-gray-400">System ID: </span>{String(fields['system_id'] ?? '')}{systemInfo.name && <span className="text-cyan-400"> ({systemInfo.name})</span>}</div>
                 <div><span className="text-gray-400">Capacity: </span>{String(fields['current_load'] ?? 0)} / {String(fields['max_capacity'] ?? 0)}</div>
                 <div><span className="text-gray-400">Fee Rate: </span>{formatBps(Number(fields['fee_rate_bps'] ?? 0))}</div>
                 <div><span className="text-gray-400">Shared: </span>{isShared ? 'Yes' : 'No (Owned)'}</div>
